@@ -18,6 +18,18 @@ type Repo = {
   last_commit_author?: string | null;
   last_commit_title?: string | null;
   last_polled_at?: string | null;
+  jobs: RepoJob[];
+};
+
+type RepoJob = {
+  path: string;
+  job_id?: string;
+  job_name?: string;
+  last_commit?: string | null;
+  updated_at: string;
+  status?: string;
+  status_description?: string;
+  status_error?: string;
 };
 
 type CredentialPayload = {
@@ -45,9 +57,15 @@ type DeleteRepoOptions = {
   unschedule: boolean;
 };
 
+type CompassStatus = {
+  nomad_connected: boolean;
+  nomad_message?: string;
+};
+
 const state = reactive({
   credentials: [] as Credential[],
   repos: [] as Repo[],
+  status: null as CompassStatus | null,
   error: null as string | null,
   refreshing: false,
   savingCredential: false,
@@ -60,7 +78,7 @@ const state = reactive({
 async function refreshAll() {
   try {
     state.refreshing = true;
-    await Promise.all([loadCredentials(), loadRepos()]);
+    await Promise.all([loadCredentials(), loadRepos(), loadStatus()]);
     state.error = null;
   } catch (err) {
     setError(err);
@@ -82,7 +100,19 @@ async function loadRepos() {
   if (!res.ok) {
     throw new Error('Unable to load repositories');
   }
-  state.repos = await res.json();
+  const repos: Repo[] = await res.json();
+  state.repos = repos.map((repo) => ({
+    ...repo,
+    jobs: repo.jobs ?? [],
+  }));
+}
+
+async function loadStatus() {
+  const res = await fetch('/api/status');
+  if (!res.ok) {
+    throw new Error('Unable to load Nomad status');
+  }
+  state.status = await res.json();
 }
 
 async function createCredential(payload: CredentialPayload) {
@@ -217,6 +247,7 @@ export function useCompassStore() {
     refreshAll,
     loadCredentials,
     loadRepos,
+    loadStatus,
     createCredential,
     deleteCredential,
     createRepo,
@@ -227,4 +258,4 @@ export function useCompassStore() {
   };
 }
 
-export type { Credential, Repo };
+export type { Credential, Repo, RepoJob, CompassStatus };

@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <Topbar :refreshing="refreshing" @refresh="refreshAll" />
+    <Topbar :refreshing="refreshing" :status="status" @refresh="refreshAll" />
     <div class="content-frame">
       <router-view />
     </div>
@@ -14,7 +14,7 @@ import Topbar from './components/Topbar.vue';
 import ToastMessage from './components/ToastMessage.vue';
 import { useCompassStore } from './composables/useCompassStore';
 
-const { refreshAll, refreshing, error, clearError } = useCompassStore();
+const { refreshAll, refreshing, error, clearError, status } = useCompassStore();
 
 onMounted(() => {
   refreshAll();

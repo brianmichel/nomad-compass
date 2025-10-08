@@ -12,9 +12,13 @@
       <RouterLink to="/settings" class="nav-link" active-class="active">Settings</RouterLink>
     </div>
     <div class="topbar-actions">
-      <span class="status-badge">
-        <span class="pulse"></span>
-        Active
+      <span
+        class="status-badge"
+        :class="{ offline: !isConnected }"
+        :title="statusTooltip"
+      >
+        <span class="pulse" :class="{ offline: !isConnected }"></span>
+        {{ statusLabel }}
       </span>
       <button class="ghost" type="button" @click="$emit('refresh')" :disabled="refreshing">
         <span class="button-icon">
@@ -28,7 +32,24 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ refreshing: boolean }>();
+import { computed } from 'vue';
+import type { CompassStatus } from '../composables/useCompassStore';
+
+const props = defineProps<{
+  refreshing: boolean;
+  status: CompassStatus | null;
+}>();
+
+const isConnected = computed(() => props.status?.nomad_connected ?? false);
+
+const statusLabel = computed(() => (isConnected.value ? 'Nomad Connected' : 'Nomad Offline'));
+
+const statusTooltip = computed(() => {
+  if (props.status?.nomad_message) {
+    return props.status.nomad_message;
+  }
+  return isConnected.value ? 'Connected to Nomad' : 'Unable to reach Nomad';
+});
 </script>
 
 <style scoped>

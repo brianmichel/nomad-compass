@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	"github.com/brianmichel/nomad-compass/internal/reconcile"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 	"github.com/brianmichel/nomad-compass/internal/web"
@@ -21,14 +22,23 @@ import (
 // Server exposes HTTP handlers for UI and API requests.
 type Server struct {
 	repos      *storage.RepoStore
+	files      *storage.RepoFileStore
 	creds      *storage.CredentialStore
 	reconciler *reconcile.Manager
+	nomad      nomadclient.Client
 	logger     *slog.Logger
 }
 
 // New constructs a Server.
-func New(repos *storage.RepoStore, creds *storage.CredentialStore, reconciler *reconcile.Manager, logger *slog.Logger) *Server {
-	return &Server{repos: repos, creds: creds, reconciler: reconciler, logger: logger}
+func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, reconciler *reconcile.Manager, nomad nomadclient.Client, logger *slog.Logger) *Server {
+	return &Server{
+		repos:      repos,
+		files:      files,
+		creds:      creds,
+		reconciler: reconciler,
+		nomad:      nomad,
+		logger:     logger,
+	}
 }
 
 // Handler builds the router hierarchy.
@@ -45,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	r.Route("/api", func(api chi.Router) {
+		api.Get("/status", s.handleStatus)
 		api.Get("/repos", s.handleListRepos)
 		api.Post("/repos", s.handleCreateRepo)
 		api.Post("/repos/{id}/reconcile", s.handleTriggerRepo)
@@ -74,7 +85,35 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]repositoryResponse, 0, len(repos))
 	for _, repo := range repos {
-		resp = append(resp, newRepositoryResponse(repo))
+		files, err := s.files.ListByRepo(ctx, repo.ID)
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+
+		jobResponses := make([]repositoryJobResponse, 0, len(files))
+		for _, file := range files {
+			jobResp := newRepositoryJobResponse(file)
+			if file.JobID.Valid && file.JobID.String != "" {
+				jobResp.JobID = file.JobID.String
+
+				status, err := s.nomad.JobStatus(ctx, file.JobID.String)
+				if err != nil {
+					s.logger.Warn("fetch job status failed", "repo_id", repo.ID, "repo", repo.Name, "job_id", file.JobID.String, "error", err)
+					jobResp.StatusError = err.Error()
+				} else if status != nil {
+					jobResp.JobName = status.Name
+					jobResp.Status = status.Status
+					jobResp.StatusDescription = status.StatusDescription
+				}
+			}
+
+			jobResponses = append(jobResponses, jobResp)
+		}
+
+		repoResp := newRepositoryResponse(repo)
+		repoResp.Jobs = jobResponses
+		resp = append(resp, repoResp)
 	}
 	respondJSON(w, resp)
 }
@@ -201,6 +240,15 @@ func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondStatus(w, http.StatusOK, nil)
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	err := s.nomad.Ping(r.Context())
+	resp := statusResponse{NomadConnected: err == nil}
+	if err != nil {
+		resp.NomadMessage = err.Error()
+	}
+	respondJSON(w, resp)
 }
 
 type createRepoRequest struct {

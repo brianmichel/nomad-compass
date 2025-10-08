@@ -12,11 +12,21 @@ import (
 type Client interface {
 	RegisterJob(ctx context.Context, job *api.Job) error
 	DeregisterJob(ctx context.Context, jobID string, purge bool) error
+	Ping(ctx context.Context) error
+	JobStatus(ctx context.Context, jobID string) (*JobStatus, error)
 }
 
 // API wraps the Nomad API client.
 type API struct {
 	client *api.Client
+}
+
+// JobStatus captures a subset of Nomad job health details.
+type JobStatus struct {
+	ID                string
+	Name              string
+	Status            string
+	StatusDescription string
 }
 
 // New constructs a Nomad API wrapper from config.
@@ -50,4 +60,44 @@ func (a *API) RegisterJob(ctx context.Context, job *api.Job) error {
 func (a *API) DeregisterJob(ctx context.Context, jobID string, purge bool) error {
 	_, _, err := a.client.Jobs().Deregister(jobID, purge, nil)
 	return err
+}
+
+// Ping verifies connectivity with the Nomad control plane.
+func (a *API) Ping(ctx context.Context) error {
+	// The Nomad client does not expose context-aware calls for status checks.
+	// The request is best-effort; we ignore the returned leader string.
+	_, err := a.client.Status().Leader()
+	return err
+}
+
+// JobStatus fetches the current status for a Nomad job by ID.
+func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
+	if jobID == "" {
+		return nil, nil
+	}
+
+	job, _, err := a.client.Jobs().Info(jobID, nil)
+	if err != nil {
+		return nil, err
+	}
+	if job == nil {
+		return nil, nil
+	}
+
+	return &JobStatus{
+		ID:                derefString(job.ID, job.Name),
+		Name:              derefString(job.Name, job.ID),
+		Status:            derefString(job.Status, nil),
+		StatusDescription: derefString(job.StatusDescription, nil),
+	}, nil
+}
+
+func derefString(primary *string, fallback *string) string {
+	if primary != nil && *primary != "" {
+		return *primary
+	}
+	if fallback != nil && *fallback != "" {
+		return *fallback
+	}
+	return ""
 }

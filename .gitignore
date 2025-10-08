@@ -27,3 +27,4 @@ dist/
 
 # Misc
 .env
+data/

@@ -116,6 +116,12 @@ textarea {
   color: #bbf7d0;
 }
 
+.status-badge.offline {
+  background: rgba(248, 113, 113, 0.2);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fecaca;
+}
+
 .pulse {
   width: 9px;
   height: 9px;
@@ -123,6 +129,12 @@ textarea {
   background: #34d399;
   box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7);
   animation: pulse 2s infinite;
+}
+
+.pulse.offline {
+  background: #f87171;
+  box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.7);
+  animation: pulse-offline 2s infinite;
 }
 
 @keyframes pulse {
@@ -134,6 +146,18 @@ textarea {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes pulse-offline {
+  0% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(248, 113, 113, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
   }
 }
 

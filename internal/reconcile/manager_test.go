@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/nomad/api"
 
+	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	repomodel "github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
@@ -72,4 +73,25 @@ func (f *fakeNomad) DeregisterJob(_ context.Context, jobID string, _ bool) error
 		f.lastJob = nil
 	}
 	return nil
+}
+
+func (f *fakeNomad) Ping(context.Context) error {
+	return nil
+}
+
+func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.JobStatus, error) {
+	if f.lastJob == nil || f.lastJob.ID == nil || *f.lastJob.ID != jobID {
+		return nil, nil
+	}
+
+	var name string
+	if f.lastJob.Name != nil {
+		name = *f.lastJob.Name
+	}
+
+	return &nomadclient.JobStatus{
+		ID:     jobID,
+		Name:   name,
+		Status: "running",
+	}, nil
 }

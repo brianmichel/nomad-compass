@@ -40,10 +40,10 @@ type Repository struct {
 
 // RepoFile tracks metadata for job files inside a repository.
 type RepoFile struct {
-    ID         int64
-    RepoID     int64
-    Path       string
-    LastCommit sql.NullString
-    UpdatedAt  time.Time
-    JobID      sql.NullString
+	ID         int64
+	RepoID     int64
+	Path       string
+	LastCommit sql.NullString
+	UpdatedAt  time.Time
+	JobID      sql.NullString
 }

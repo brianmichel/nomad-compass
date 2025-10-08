@@ -26,17 +26,18 @@ func newCredentialResponse(c storage.Credential) credentialResponse {
 }
 
 type repositoryResponse struct {
-	ID               int64      `json:"id"`
-	Name             string     `json:"name"`
-	RepoURL          string     `json:"repo_url"`
-	Branch           string     `json:"branch"`
-	CredentialID     *int64     `json:"credential_id,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	LastCommit       *string    `json:"last_commit,omitempty"`
-	LastCommitAuthor *string    `json:"last_commit_author,omitempty"`
-	LastCommitTitle  *string    `json:"last_commit_title,omitempty"`
-	LastPolledAt     *time.Time `json:"last_polled_at,omitempty"`
+	ID               int64                   `json:"id"`
+	Name             string                  `json:"name"`
+	RepoURL          string                  `json:"repo_url"`
+	Branch           string                  `json:"branch"`
+	CredentialID     *int64                  `json:"credential_id,omitempty"`
+	CreatedAt        time.Time               `json:"created_at"`
+	UpdatedAt        time.Time               `json:"updated_at"`
+	LastCommit       *string                 `json:"last_commit,omitempty"`
+	LastCommitAuthor *string                 `json:"last_commit_author,omitempty"`
+	LastCommitTitle  *string                 `json:"last_commit_title,omitempty"`
+	LastPolledAt     *time.Time              `json:"last_polled_at,omitempty"`
+	Jobs             []repositoryJobResponse `json:"jobs"`
 }
 
 func newRepositoryResponse(repo storage.Repository) repositoryResponse {
@@ -52,7 +53,32 @@ func newRepositoryResponse(repo storage.Repository) repositoryResponse {
 		LastCommitAuthor: nullableString(repo.LastCommitAuthor),
 		LastCommitTitle:  nullableString(repo.LastCommitTitle),
 		LastPolledAt:     nullableTime(repo.LastPolledAt),
+		Jobs:             []repositoryJobResponse{},
 	}
+}
+
+type repositoryJobResponse struct {
+	Path              string    `json:"path"`
+	JobID             string    `json:"job_id,omitempty"`
+	JobName           string    `json:"job_name,omitempty"`
+	LastCommit        *string   `json:"last_commit,omitempty"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	Status            string    `json:"status,omitempty"`
+	StatusDescription string    `json:"status_description,omitempty"`
+	StatusError       string    `json:"status_error,omitempty"`
+}
+
+func newRepositoryJobResponse(file storage.RepoFile) repositoryJobResponse {
+	return repositoryJobResponse{
+		Path:       file.Path,
+		LastCommit: nullableString(file.LastCommit),
+		UpdatedAt:  file.UpdatedAt,
+	}
+}
+
+type statusResponse struct {
+	NomadConnected bool   `json:"nomad_connected"`
+	NomadMessage   string `json:"nomad_message,omitempty"`
 }
 
 func nullableInt64(v sql.NullInt64) *int64 {
