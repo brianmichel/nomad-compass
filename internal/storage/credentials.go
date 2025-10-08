@@ -108,3 +108,9 @@ func (s *CredentialStore) DecryptPayload(c *Credential) (*CredentialPayload, err
 	}
 	return &payload, nil
 }
+
+// Delete removes a credential by ID.
+func (s *CredentialStore) Delete(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = ?`, id)
+	return err
+}

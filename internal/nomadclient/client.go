@@ -8,9 +8,10 @@ import (
 	"github.com/brianmichel/nomad-compass/internal/config"
 )
 
-// JobRegistrar defines the minimal Nomad functionality used by the reconciler.
-type JobRegistrar interface {
+// Client defines the operations Nomad Compass uses.
+type Client interface {
 	RegisterJob(ctx context.Context, job *api.Job) error
+	DeregisterJob(ctx context.Context, jobID string, purge bool) error
 }
 
 // API wraps the Nomad API client.
@@ -42,5 +43,11 @@ func New(cfg config.NomadConfig) (*API, error) {
 func (a *API) RegisterJob(ctx context.Context, job *api.Job) error {
 	// The Nomad client does not expose context-aware calls for Register, so we rely on API client internals.
 	_, _, err := a.client.Jobs().Register(job, nil)
+	return err
+}
+
+// DeregisterJob removes a Nomad job by ID.
+func (a *API) DeregisterJob(ctx context.Context, jobID string, purge bool) error {
+	_, _, err := a.client.Jobs().Deregister(jobID, purge, nil)
 	return err
 }

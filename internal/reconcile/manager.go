@@ -20,13 +20,13 @@ type Manager struct {
 	files    *storage.RepoFileStore
 	creds    *storage.CredentialStore
 	git      *repo.Manager
-	nomad    nomadclient.JobRegistrar
+	nomad    nomadclient.Client
 	interval time.Duration
 	logger   *slog.Logger
 }
 
 // New constructs a reconciliation manager.
-func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, git *repo.Manager, nomad nomadclient.JobRegistrar, interval time.Duration, logger *slog.Logger) *Manager {
+func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, git *repo.Manager, nomad nomadclient.Client, interval time.Duration, logger *slog.Logger) *Manager {
 	return &Manager{repos: repos, files: files, creds: creds, git: git, nomad: nomad, interval: interval, logger: logger}
 }
 
@@ -110,10 +110,11 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	}
 
 	for _, jobFile := range snapshot.JobFiles {
-		if err := m.applyJob(ctx, repoRecord, jobFile, snapshot); err != nil {
+		jobID, err := m.applyJob(ctx, repoRecord, jobFile, snapshot)
+		if err != nil {
 			m.logger.Error("job apply failed", "repo", repoRecord.Name, "file", jobFile.Path, "error", err)
 		} else {
-			_ = m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash)
+			_ = m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash, jobID)
 		}
 	}
 
@@ -125,10 +126,10 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	return nil
 }
 
-func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) error {
+func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) (string, error) {
 	job, err := parseJob(jobFile.Path, jobFile.Content)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
@@ -138,7 +139,101 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
 	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
 
-	return m.nomad.RegisterJob(ctx, job)
+	if err := m.nomad.RegisterJob(ctx, job); err != nil {
+		return "", err
+	}
+	return jobID(job), nil
+}
+
+// DeleteRepository removes repository metadata and optionally unschedules jobs.
+func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error {
+	repoRecord, err := m.repos.Get(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if repoRecord == nil {
+		return errors.New("repository not found")
+	}
+
+	if unschedule {
+		if err := m.unscheduleJobs(ctx, repoRecord.ID); err != nil {
+			return err
+		}
+	}
+
+	if err := m.files.DeleteByRepo(ctx, repoRecord.ID); err != nil {
+		return err
+	}
+	if err := m.repos.Delete(ctx, repoRecord.ID); err != nil {
+		return err
+	}
+	if err := m.git.RemoveRepo(repoRecord.ID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteCredential removes a credential and optionally deletes & unschedules repos that depend on it.
+func (m *Manager) DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error {
+	credential, err := m.creds.Get(ctx, credentialID)
+	if err != nil {
+		return err
+	}
+	if credential == nil {
+		return errors.New("credential not found")
+	}
+
+	repos, err := m.repos.ListByCredential(ctx, credentialID)
+	if err != nil {
+		return err
+	}
+
+	if deleteRepos {
+		for _, repo := range repos {
+			if err := m.DeleteRepository(ctx, repo.ID, unschedule); err != nil {
+				return err
+			}
+		}
+	} else if len(repos) > 0 {
+		if err := m.repos.ClearCredential(ctx, credentialID); err != nil {
+			return err
+		}
+	}
+
+	if err := m.creds.Delete(ctx, credentialID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Manager) unscheduleJobs(ctx context.Context, repoID int64) error {
+	files, err := m.files.ListByRepo(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if !file.JobID.Valid || file.JobID.String == "" {
+			continue
+		}
+		if err := m.nomad.DeregisterJob(ctx, file.JobID.String, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func jobID(job *api.Job) string {
+	if job == nil {
+		return ""
+	}
+	if job.ID != nil && *job.ID != "" {
+		return *job.ID
+	}
+	if job.Name != nil {
+		return *job.Name
+	}
+	return ""
 }
 
 func parseJob(path string, contents []byte) (*api.Job, error) {

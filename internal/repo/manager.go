@@ -45,6 +45,18 @@ func NewManager(baseDir string) *Manager {
 	return &Manager{baseDir: baseDir}
 }
 
+// RemoveRepo deletes the working directory for a repository if it exists.
+func (m *Manager) RemoveRepo(repoID int64) error {
+	repoPath := filepath.Join(m.baseDir, fmt.Sprintf("repo-%d", repoID))
+	if _, err := os.Stat(repoPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return os.RemoveAll(repoPath)
+}
+
 // Sync fetches the latest state for repo from remote and returns a snapshot.
 func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential *storage.Credential, payload *storage.CredentialPayload) (*Snapshot, error) {
 	if err := os.MkdirAll(m.baseDir, 0o755); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -53,18 +54,32 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             path TEXT NOT NULL,
             last_commit TEXT,
             updated_at TIMESTAMP NOT NULL,
+            job_id TEXT,
             UNIQUE(repo_id, path),
             FOREIGN KEY(repo_id) REFERENCES repos(id)
         )`,
+		`ALTER TABLE repo_files ADD COLUMN job_id TEXT`,
 	}
 
 	for _, stmt := range stmts {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return err
+			// Ignore SQLite errors when columns already exist.
+			if !isIgnorableMigrationError(err) {
+				return err
+			}
 		}
 	}
 
 	return nil
+}
+
+func isIgnorableMigrationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// SQLite returns errors containing these substrings when an ALTER has already been applied.
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists")
 }
 
 // Now returns a UTC timestamp helper.

@@ -28,12 +28,17 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 	snapshot := &repomodel.Snapshot{CommitHash: "abc123", CommitAuthor: "Tester <test@example.com>", CommitTitle: "Initial"}
 	jobFile := repomodel.JobFile{Path: ".nomad/job.nomad.hcl", Content: []byte(`job "demo" { datacenters = ["dc1"] }`)}
 
-	if err := m.applyJob(context.Background(), repo, jobFile, snapshot); err != nil {
+	id, err := m.applyJob(context.Background(), repo, jobFile, snapshot)
+	if err != nil {
 		t.Fatalf("apply job: %v", err)
 	}
 
 	if fake.lastJob == nil {
 		t.Fatal("expected job to be registered")
+	}
+
+	if id == "" {
+		t.Fatal("expected job id")
 	}
 
 	meta := fake.lastJob.Meta
@@ -59,5 +64,12 @@ type fakeNomad struct {
 
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job) error {
 	f.lastJob = job
+	return nil
+}
+
+func (f *fakeNomad) DeregisterJob(_ context.Context, jobID string, _ bool) error {
+	if f.lastJob != nil && f.lastJob.ID != nil && *f.lastJob.ID == jobID {
+		f.lastJob = nil
+	}
 	return nil
 }

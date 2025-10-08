@@ -1,19 +1,54 @@
 :root {
-  color-scheme: light dark;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f5f6f8;
-  color: #1f2933;
+  color-scheme: dark;
+  font-family: 'Inter', 'SF Pro Text', 'Segoe UI', sans-serif;
+  background-color: #020617;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background: var(--background, #f5f6f8);
+  min-height: 100vh;
+  background:
+    radial-gradient(120vw 120vh at -20% -10%, rgba(59, 130, 246, 0.35), transparent 60%),
+    radial-gradient(80vw 80vh at 120% -10%, rgba(192, 38, 211, 0.25), transparent 70%),
+    radial-gradient(120vw 120vh at 50% 110%, rgba(56, 189, 248, 0.2), transparent 75%),
+    #020617;
 }
 
 a {
   color: inherit;
+  text-decoration: none;
 }
 
 button {
-  cursor: pointer;
+  font-family: inherit;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background-color: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+textarea {
+  resize: vertical;
 }

@@ -9,6 +9,7 @@ Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single co
 - **SQLite persistence** – Lightweight, zero-dependency database managed automatically.
 - **Git polling** – Uses `go-git` to clone, fetch, and track `.nomad/*.nomad.hcl` job files.
 - **Nomad integration** – Parses HCL jobspecs and registers them via the Nomad API with commit metadata attached.
+- **Safe teardown** – Delete repositories or credentials from the UI and optionally purge their Nomad jobs.
 - **Extensive metadata** – Jobs are tagged with repository URL, commit SHA, author, and commit title for traceability.
 - **Well tested** – Core encryption, storage, reconciliation, and Git plumbing covered by unit tests.
 

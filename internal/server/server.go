@@ -48,9 +48,11 @@ func (s *Server) Handler() http.Handler {
 		api.Get("/repos", s.handleListRepos)
 		api.Post("/repos", s.handleCreateRepo)
 		api.Post("/repos/{id}/reconcile", s.handleTriggerRepo)
+		api.Delete("/repos/{id}", s.handleDeleteRepo)
 
 		api.Get("/credentials", s.handleListCredentials)
 		api.Post("/credentials", s.handleCreateCredential)
+		api.Delete("/credentials/{id}", s.handleDeleteCredential)
 	})
 
 	distFS, err := fs.Sub(web.FS(), "dist")
@@ -70,7 +72,11 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	respondJSON(w, repos)
+	resp := make([]repositoryResponse, 0, len(repos))
+	for _, repo := range repos {
+		resp = append(resp, newRepositoryResponse(repo))
+	}
+	respondJSON(w, resp)
 }
 
 func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +106,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}(repo.ID)
 
-	respondJSON(w, repo)
+	respondJSON(w, newRepositoryResponse(*repo))
 }
 
 func (s *Server) handleTriggerRepo(w http.ResponseWriter, r *http.Request) {
@@ -116,13 +122,40 @@ func (s *Server) handleTriggerRepo(w http.ResponseWriter, r *http.Request) {
 	respondStatus(w, http.StatusAccepted, nil)
 }
 
+func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+
+	var req deleteRepoRequest
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			respondStatus(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+
+	if err := s.reconciler.DeleteRepository(r.Context(), id, req.Unschedule); err != nil {
+		respondErr(w, err)
+		return
+	}
+	respondStatus(w, http.StatusOK, nil)
+}
+
 func (s *Server) handleListCredentials(w http.ResponseWriter, r *http.Request) {
 	creds, err := s.creds.List(r.Context())
 	if err != nil {
 		respondErr(w, err)
 		return
 	}
-	respondJSON(w, creds)
+	resp := make([]credentialResponse, 0, len(creds))
+	for _, cred := range creds {
+		resp = append(resp, newCredentialResponse(cred))
+	}
+	respondJSON(w, resp)
 }
 
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +177,30 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		respondErr(w, err)
 		return
 	}
-	respondJSON(w, cred)
+	respondJSON(w, newCredentialResponse(*cred))
+}
+
+func (s *Server) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+
+	var req deleteCredentialRequest
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			respondStatus(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+
+	if err := s.reconciler.DeleteCredential(r.Context(), id, req.DeleteRepos, req.Unschedule); err != nil {
+		respondErr(w, err)
+		return
+	}
+	respondStatus(w, http.StatusOK, nil)
 }
 
 type createRepoRequest struct {
@@ -161,6 +217,15 @@ type createCredentialRequest struct {
 	Username   string `json:"username"`
 	PrivateKey string `json:"private_key"`
 	Passphrase string `json:"passphrase"`
+}
+
+type deleteRepoRequest struct {
+	Unschedule bool `json:"unschedule"`
+}
+
+type deleteCredentialRequest struct {
+	Unschedule  bool `json:"unschedule"`
+	DeleteRepos bool `json:"delete_repos"`
 }
 
 func respondJSON(w http.ResponseWriter, v interface{}) {

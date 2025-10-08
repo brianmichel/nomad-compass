@@ -49,6 +49,12 @@ func (s *RepoStore) Create(ctx context.Context, input RepositoryInput) (*Reposit
 	return repo, nil
 }
 
+// Delete removes a repository and associated metadata.
+func (s *RepoStore) Delete(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM repos WHERE id = ?`, id)
+	return err
+}
+
 // List returns all repositories.
 func (s *RepoStore) List(ctx context.Context) ([]Repository, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos ORDER BY created_at DESC`)
@@ -78,6 +84,43 @@ func (s *RepoStore) List(ctx context.Context) ([]Repository, error) {
 		repos = append(repos, repo)
 	}
 	return repos, rows.Err()
+}
+
+// ListByCredential returns repositories linked to a credential.
+func (s *RepoStore) ListByCredential(ctx context.Context, credentialID int64) ([]Repository, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos WHERE credential_id = ? ORDER BY created_at DESC`, credentialID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var repos []Repository
+	for rows.Next() {
+		var repo Repository
+		if err := rows.Scan(
+			&repo.ID,
+			&repo.Name,
+			&repo.RepoURL,
+			&repo.Branch,
+			&repo.CredentialID,
+			&repo.CreatedAt,
+			&repo.UpdatedAt,
+			&repo.LastCommit,
+			&repo.LastCommitAuthor,
+			&repo.LastCommitTitle,
+			&repo.LastPolledAt,
+		); err != nil {
+			return nil, err
+		}
+		repos = append(repos, repo)
+	}
+	return repos, rows.Err()
+}
+
+// ClearCredential removes credential association for repos with the given credential.
+func (s *RepoStore) ClearCredential(ctx context.Context, credentialID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE repos SET credential_id = NULL, updated_at = ? WHERE credential_id = ?`, Now(), credentialID)
+	return err
 }
 
 // Get fetches a repository by ID.
@@ -143,16 +186,16 @@ func NewRepoFileStore(db *sql.DB) *RepoFileStore {
 }
 
 // Upsert stores or updates repo file metadata.
-func (s *RepoFileStore) Upsert(ctx context.Context, repoID int64, path string, commit string) error {
+func (s *RepoFileStore) Upsert(ctx context.Context, repoID int64, path string, commit string, jobID string) error {
 	now := Now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO repo_files (repo_id, path, last_commit, updated_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT(repo_id, path) DO UPDATE SET last_commit = excluded.last_commit, updated_at = excluded.updated_at`, repoID, path, commitOrNull(commit), now)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO repo_files (repo_id, path, last_commit, updated_at, job_id) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(repo_id, path) DO UPDATE SET last_commit = excluded.last_commit, updated_at = excluded.updated_at, job_id = excluded.job_id`, repoID, path, commitOrNull(commit), now, jobIDOrNull(jobID))
 	return err
 }
 
 // ListByRepo returns tracked files for a repo.
 func (s *RepoFileStore) ListByRepo(ctx context.Context, repoID int64) ([]RepoFile, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, path, last_commit, updated_at FROM repo_files WHERE repo_id = ?`, repoID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, path, last_commit, updated_at, job_id FROM repo_files WHERE repo_id = ?`, repoID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,10 +204,23 @@ func (s *RepoFileStore) ListByRepo(ctx context.Context, repoID int64) ([]RepoFil
 	var files []RepoFile
 	for rows.Next() {
 		var file RepoFile
-		if err := rows.Scan(&file.ID, &file.RepoID, &file.Path, &file.LastCommit, &file.UpdatedAt); err != nil {
+		if err := rows.Scan(&file.ID, &file.RepoID, &file.Path, &file.LastCommit, &file.UpdatedAt, &file.JobID); err != nil {
 			return nil, err
 		}
 		files = append(files, file)
 	}
 	return files, rows.Err()
+}
+
+// DeleteByRepo removes entries for a repository.
+func (s *RepoFileStore) DeleteByRepo(ctx context.Context, repoID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM repo_files WHERE repo_id = ?`, repoID)
+	return err
+}
+
+func jobIDOrNull(jobID string) interface{} {
+	if jobID == "" {
+		return nil
+	}
+	return jobID
 }
