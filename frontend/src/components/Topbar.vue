@@ -3,8 +3,8 @@
     <div class="brand">
       <div class="brand-icon">🧭</div>
       <div class="brand-copy">
-        <span class="brand-title">Nomad Compass</span>
-        <span class="brand-subtitle">GitOps recon supervisor</span>
+        <span class="brand-title">Compass</span>
+        <span class="brand-subtitle">GitOps Reconciler</span>
       </div>
     </div>
     <div class="topbar-nav">
