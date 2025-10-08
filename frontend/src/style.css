@@ -1,0 +1,19 @@
+:root {
+  color-scheme: light dark;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f5f6f8;
+  color: #1f2933;
+}
+
+body {
+  margin: 0;
+  background: var(--background, #f5f6f8);
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}

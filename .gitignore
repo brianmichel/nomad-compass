@@ -1,0 +1,29 @@
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+internal/web/dist/*
+!internal/web/dist/.keep
+
+# Build artifacts
+dist/
+*.db
+*.sqlite*
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.env

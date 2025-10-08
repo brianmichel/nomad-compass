@@ -1,0 +1,26 @@
+[env]
+PATH = "{{env.PATH}}"
+
+[tools]
+go = "1.24.8"
+node = "20"
+
+[tasks.go-test]
+run = "go test ./..."
+
+[tasks.frontend-install]
+dir = "frontend"
+run = "npm install"
+
+[tasks.frontend-build]
+dir = "frontend"
+run = "npm run build"
+depends = ["frontend-install"]
+
+[tasks.frontend-dev]
+dir = "frontend"
+run = "npm run dev"
+depends = ["frontend-install"]
+
+[tasks.backend-run]
+run = "go run ./cmd/nomad-compass"
