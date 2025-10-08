@@ -157,7 +157,7 @@ function jobStatusClass(job: RepoJob) {
   if (['pending', 'queued', 'evaluating'].includes(normalized)) {
     return 'pending';
   }
-  if (['failed', 'dead', 'lost'].includes(normalized)) {
+  if (['failed', 'dead', 'lost', 'missing'].includes(normalized)) {
     return 'danger';
   }
   return 'unknown';

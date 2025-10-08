@@ -2,6 +2,8 @@ package nomadclient
 
 import (
 	"context"
+	"errors"
+	"net/http"
 
 	"github.com/hashicorp/nomad/api"
 
@@ -27,6 +29,7 @@ type JobStatus struct {
 	Name              string
 	Status            string
 	StatusDescription string
+	Exists            bool
 }
 
 // New constructs a Nomad API wrapper from config.
@@ -78,10 +81,14 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 
 	job, _, err := a.client.Jobs().Info(jobID, nil)
 	if err != nil {
+		var unexpected api.UnexpectedResponseError
+		if errors.As(err, &unexpected) && unexpected.StatusCode() == http.StatusNotFound {
+			return &JobStatus{ID: jobID, Exists: false}, nil
+		}
 		return nil, err
 	}
 	if job == nil {
-		return nil, nil
+		return &JobStatus{ID: jobID, Exists: false}, nil
 	}
 
 	return &JobStatus{
@@ -89,6 +96,7 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		Name:              derefString(job.Name, job.ID),
 		Status:            derefString(job.Status, nil),
 		StatusDescription: derefString(job.StatusDescription, nil),
+		Exists:            true,
 	}, nil
 }
 

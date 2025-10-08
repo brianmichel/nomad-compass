@@ -81,7 +81,7 @@ func (f *fakeNomad) Ping(context.Context) error {
 
 func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.JobStatus, error) {
 	if f.lastJob == nil || f.lastJob.ID == nil || *f.lastJob.ID != jobID {
-		return nil, nil
+		return &nomadclient.JobStatus{ID: jobID, Exists: false}, nil
 	}
 
 	var name string
@@ -93,5 +93,6 @@ func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.Job
 		ID:     jobID,
 		Name:   name,
 		Status: "running",
+		Exists: true,
 	}, nil
 }

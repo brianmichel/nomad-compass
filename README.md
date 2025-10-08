@@ -1,5 +1,7 @@
 # Nomad Compass
 
+A work in progress gitops reconciler for Nomad.
+
 Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single container that hosts a tiny onboarding UI, stores encrypted repository credentials, and continuously syncs Nomad job specifications committed to Git.
 
 ## Features

@@ -104,25 +104,23 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 		return err
 	}
 
-	if repoRecord.LastCommit.Valid && repoRecord.LastCommit.String == snapshot.CommitHash {
-		m.logger.Info("repo already reconciled", "repo", repoRecord.Name, "commit", snapshot.CommitHash)
-		return m.repos.UpdatePollTimestamp(ctx, repoRecord.ID)
-	}
-
-	for _, jobFile := range snapshot.JobFiles {
-		jobID, err := m.applyJob(ctx, repoRecord, jobFile, snapshot)
-		if err != nil {
-			m.logger.Error("job apply failed", "repo", repoRecord.Name, "file", jobFile.Path, "error", err)
-		} else {
-			_ = m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash, jobID)
-		}
-	}
-
-	if err := m.repos.UpdateCommitMetadata(ctx, repoRecord.ID, snapshot.CommitHash, snapshot.CommitAuthor, snapshot.CommitTitle); err != nil {
+	commitChanged := !repoRecord.LastCommit.Valid || repoRecord.LastCommit.String != snapshot.CommitHash
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, commitChanged); err != nil {
 		return err
 	}
 
-	m.logger.Info("repo reconciled", "repo", repoRecord.Name, "commit", snapshot.CommitHash)
+	if commitChanged {
+		if err := m.repos.UpdateCommitMetadata(ctx, repoRecord.ID, snapshot.CommitHash, snapshot.CommitAuthor, snapshot.CommitTitle); err != nil {
+			return err
+		}
+		m.logger.Info("repo reconciled", "repo", repoRecord.Name, "commit", snapshot.CommitHash)
+	} else {
+		if err := m.repos.UpdatePollTimestamp(ctx, repoRecord.ID); err != nil {
+			return err
+		}
+		m.logger.Info("repo state enforced", "repo", repoRecord.Name, "commit", snapshot.CommitHash)
+	}
+
 	return nil
 }
 
@@ -246,4 +244,56 @@ func parseJob(path string, contents []byte) (*api.Job, error) {
 		job.Meta = map[string]string{}
 	}
 	return job, nil
+}
+
+func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository, snapshot *repo.Snapshot, commitChanged bool) error {
+	repoFiles, err := m.files.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		return err
+	}
+
+	fileIndex := make(map[string]storage.RepoFile, len(repoFiles))
+	for _, file := range repoFiles {
+		fileIndex[file.Path] = file
+	}
+
+	for _, jobFile := range snapshot.JobFiles {
+		existing, tracked := fileIndex[jobFile.Path]
+		needApply := commitChanged || !tracked
+
+		var trackedJobID string
+		if tracked && existing.JobID.Valid {
+			trackedJobID = existing.JobID.String
+		}
+
+		if !needApply {
+			if trackedJobID == "" {
+				needApply = true
+			} else {
+				status, err := m.nomad.JobStatus(ctx, trackedJobID)
+				if err != nil {
+					m.logger.Warn("job status check failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
+					continue
+				}
+				if status == nil || !status.Exists {
+					needApply = true
+				}
+			}
+		}
+
+		if !needApply {
+			continue
+		}
+
+		jobID, err := m.applyJob(ctx, repoRecord, jobFile, snapshot)
+		if err != nil {
+			m.logger.Error("job apply failed", "repo", repoRecord.Name, "file", jobFile.Path, "error", err)
+			continue
+		}
+		if err := m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash, jobID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -102,9 +102,14 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 					s.logger.Warn("fetch job status failed", "repo_id", repo.ID, "repo", repo.Name, "job_id", file.JobID.String, "error", err)
 					jobResp.StatusError = err.Error()
 				} else if status != nil {
-					jobResp.JobName = status.Name
-					jobResp.Status = status.Status
-					jobResp.StatusDescription = status.StatusDescription
+					if status.Exists {
+						jobResp.JobName = status.Name
+						jobResp.Status = status.Status
+						jobResp.StatusDescription = status.StatusDescription
+					} else {
+						jobResp.Status = "missing"
+						jobResp.StatusDescription = "Job not found in Nomad"
+					}
 				}
 			}
 
