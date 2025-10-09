@@ -1,0 +1,43 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify formatting
+        run: |
+          files=$(git ls-files '*.go')
+          if [ -n "$files" ]; then
+            fmt_output=$(gofmt -l $files)
+            if [ -n "$fmt_output" ]; then
+              echo "Go files need formatting:"
+              echo "$fmt_output"
+              exit 1
+            fi
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run go test
+        run: go test ./... -v
