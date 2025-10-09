@@ -13,7 +13,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /workspace/internal/web/dist internal/web/dist
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/nomad-compass ./cmd/nomad-compass
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/nomad-compass ./cmd/nomad-compass
 
 FROM gcr.io/distroless/base-debian12
 WORKDIR /app

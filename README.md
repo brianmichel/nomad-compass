@@ -83,9 +83,18 @@ Run it:
 ```bash
 docker run \
   -e COMPASS_CREDENTIAL_KEY=$(openssl rand -hex 32) \
-  -e COMPASS_NOMAD_ADDR=http://nomad.service.consul:4646 \
+  -e COMPASS_NOMAD_ADDR=http://host.docker.internal:4646 \
   -p 8080:8080 \
   nomad-compass
+```
+
+Run it in Nomad
+
+```bash
+nomad run \
+  -var="nomad_token=token-goes-here" \
+  -var="credential_key=credential-key-goes-here" \
+  example/nomad-compass.nomad.hcl
 ```
 
 Mount `/data` or change `COMPASS_DATABASE_PATH`/`COMPASS_REPO_BASE_DIR` if you prefer persistent volumes.

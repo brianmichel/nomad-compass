@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +14,11 @@ import (
 
 // Open establishes a SQLite connection with sensible defaults.
 func Open(path string) (*sql.DB, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("ensure database directory: %w", err)
+		}
+	}
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout=5000&_pragma=journal_mode=WAL", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
