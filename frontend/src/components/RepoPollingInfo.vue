@@ -21,10 +21,20 @@
         </div>
       </div>
 
-      <code
-        v-if="repo.last_commit"
+      <a
+        v-if="repo.last_commit && commitLink"
         class="commit-hash"
-        :title="repo.last_commit"
+        :href="commitLink"
+        target="_blank"
+        rel="noopener noreferrer"
+        :title="`View commit ${repo.last_commit}`"
+      >
+        {{ commitDisplay(repo.last_commit) }}
+      </a>
+      <code
+        v-else-if="repo.last_commit"
+        class="commit-hash"
+        :title="repo.last_commit || 'Awaiting first run'"
       >
         {{ commitDisplay(repo.last_commit) }}
       </code>
@@ -33,11 +43,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { Repo } from '../composables/useCompassStore';
 
-defineProps<{
+const props = defineProps<{
   repo: Repo;
 }>();
+
+const commitLink = computed(() => buildCommitUrl(props.repo));
 
 function commitDisplay(commit?: string | null) {
   if (!commit) return 'pending';
@@ -93,18 +106,47 @@ function formatRelativeTime(value?: string | null) {
   }
   return rtf.format(seconds, 'second');
 }
+function buildCommitUrl(repo: Repo) {
+  if (!repo.last_commit) {
+    return null;
+  }
+  const repoUrl = (repo.repo_url || '').trim();
+  if (!repoUrl) {
+    return null;
+  }
+  let base = repoUrl.replace(/\.git$/i, '');
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return `${base}/commit/${repo.last_commit}`;
+  }
+  if (base.startsWith('git@')) {
+    const match = base.match(/^git@([^:]+):(.+)$/);
+    if (match) {
+      const host = match[1];
+      const path = match[2].replace(/\.git$/i, '');
+      return `https://${host}/${path}/commit/${repo.last_commit}`;
+    }
+  }
+  if (base.startsWith('ssh://')) {
+    try {
+      const url = new URL(base);
+      const host = url.hostname;
+      const path = url.pathname.replace(/\.git$/i, '').replace(/^\/+/, '');
+      return `https://${host}/${path}/commit/${repo.last_commit}`;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 </script>
 
 <style scoped>
 .repo-status {
-  margin-top: 1rem;
-  padding: 0.8rem 0.9rem;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(71, 85, 105, 0.35);
+  margin: 0;
+  padding: 0.75rem 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.55rem;
 }
 
 .commit-row {
@@ -147,6 +189,17 @@ function formatRelativeTime(value?: string | null) {
   border: 1px solid rgba(148, 163, 184, 0.3);
   color: rgba(226, 232, 240, 0.85);
   letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.commit-hash:hover,
+.commit-hash:focus-visible {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: rgba(226, 232, 240, 0.95);
 }
 
 .author-name {
