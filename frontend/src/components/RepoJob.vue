@@ -224,11 +224,15 @@ function capitalize(value: string) {
 }
 
 .allocation-square {
-  width: 0.8rem;
-  height: 0.8rem;
+  width: 0.9rem;
+  height: 0.9rem;
   border-radius: 0.2rem;
   background: #3e4741;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.allocation-square:hover {
+  opacity: 0.7;
 }
 
 .allocation-square.healthy {
