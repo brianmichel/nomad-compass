@@ -46,6 +46,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             name TEXT NOT NULL,
             repo_url TEXT NOT NULL,
             branch TEXT NOT NULL,
+            job_path TEXT NOT NULL DEFAULT '.nomad',
             credential_id INTEGER,
             created_at TIMESTAMP NOT NULL,
             updated_at TIMESTAMP NOT NULL,
@@ -65,6 +66,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             UNIQUE(repo_id, path),
             FOREIGN KEY(repo_id) REFERENCES repos(id)
         )`,
+		`ALTER TABLE repos ADD COLUMN job_path TEXT NOT NULL DEFAULT '.nomad'`,
 		`ALTER TABLE repo_files ADD COLUMN job_id TEXT`,
 	}
 

@@ -99,6 +99,9 @@ func TestRepoStoreCreate(t *testing.T) {
 	if repo.ID == 0 {
 		t.Fatal("expected repo id")
 	}
+	if repo.JobPath != ".nomad" {
+		t.Fatalf("expected default job path .nomad, got %q", repo.JobPath)
+	}
 
 	repos, err := store.List(context.Background())
 	if err != nil {
@@ -124,10 +127,14 @@ func TestRepoStoreCreate(t *testing.T) {
 		Name:         "secure",
 		RepoURL:      "https://example.com/secure.git",
 		Branch:       "main",
+		JobPath:      "jobspecs",
 		CredentialID: sql.NullInt64{Int64: cred.ID, Valid: true},
 	})
 	if err != nil {
 		t.Fatalf("create repo with credential: %v", err)
+	}
+	if repoWithCred.JobPath != "jobspecs" {
+		t.Fatalf("expected custom job path jobspecs, got %q", repoWithCred.JobPath)
 	}
 
 	reposForCred, err := store.ListByCredential(context.Background(), cred.ID)

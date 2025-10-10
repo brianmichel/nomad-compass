@@ -29,6 +29,7 @@ type Repository struct {
 	Name             string
 	RepoURL          string
 	Branch           string
+	JobPath          string
 	CredentialID     sql.NullInt64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time

@@ -20,7 +20,7 @@
 import { ref } from 'vue';
 import RepoForm from '../components/RepoForm.vue';
 import RepoList from '../components/RepoList.vue';
-import type { Repo } from '../composables/useCompassStore';
+import type { Repo, RepoPayload } from '../composables/useCompassStore';
 import { useCompassStore } from '../composables/useCompassStore';
 
 const repoFormRef = ref<InstanceType<typeof RepoForm> | null>(null);
@@ -36,7 +36,7 @@ const {
   deleteRepo,
 } = useCompassStore();
 
-async function handleRepoSubmit(payload: { name: string; repo_url: string; branch: string; credential_id?: number }) {
+async function handleRepoSubmit(payload: RepoPayload) {
   try {
     await createRepo(payload);
     repoFormRef.value?.reset();

@@ -134,6 +134,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		RepoURL: req.RepoURL,
 		Branch:  req.Branch,
+		JobPath: req.JobPath,
 		CredentialID: sql.NullInt64{
 			Int64: req.CredentialID,
 			Valid: req.CredentialID > 0,
@@ -260,6 +261,7 @@ type createRepoRequest struct {
 	Name         string `json:"name"`
 	RepoURL      string `json:"repo_url"`
 	Branch       string `json:"branch"`
+	JobPath      string `json:"job_path"`
 	CredentialID int64  `json:"credential_id"`
 }
 

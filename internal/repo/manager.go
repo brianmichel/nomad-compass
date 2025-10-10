@@ -110,12 +110,20 @@ func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential 
 		return nil, err
 	}
 
-	jobFiles, err := discoverJobFiles(repoPath)
+	jobPath := repo.JobPath
+	if jobPath == "" {
+		jobPath = ".nomad"
+	}
+	jobFiles, err := discoverJobFiles(repoPath, jobPath)
 	if err != nil {
 		return nil, err
 	}
 	if len(jobFiles) == 0 {
-		return nil, fmt.Errorf("no job files found in %s", repoPath)
+		searchRoot := jobPath
+		if !filepath.IsAbs(searchRoot) {
+			searchRoot = filepath.Join(repoPath, jobPath)
+		}
+		return nil, fmt.Errorf("no job files found in %s", searchRoot)
 	}
 
 	return &Snapshot{
@@ -143,44 +151,67 @@ func headMetadata(gitRepo *gogit.Repository) (hash string, author string, title 
 	return ref.Hash().String(), fmt.Sprintf("%s <%s>", commit.Author.Name, commit.Author.Email), titleLine, nil
 }
 
-func discoverJobFiles(repoPath string) ([]JobFile, error) {
-	base := filepath.Join(repoPath, ".nomad")
-	entries := []string{filepath.Join(base, "job.nomad.hcl")}
+func discoverJobFiles(repoPath string, jobPath string) ([]JobFile, error) {
+	searchRoot := jobPath
+	if searchRoot == "" {
+		searchRoot = ".nomad"
+	}
+	if !filepath.IsAbs(searchRoot) {
+		searchRoot = filepath.Join(repoPath, searchRoot)
+	}
 
-	globbed, err := filepath.Glob(filepath.Join(base, "*.nomad.hcl"))
+	info, err := os.Stat(searchRoot)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	entries = append(entries, globbed...)
 
-	seen := map[string]struct{}{}
-	var files []JobFile
-	for _, entry := range entries {
-		if _, ok := seen[entry]; ok {
-			continue
-		}
-		seen[entry] = struct{}{}
-		info, err := os.Stat(entry)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
+	var paths []string
+	if info.IsDir() {
+		err = filepath.WalkDir(searchRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if errors.Is(walkErr, fs.ErrNotExist) {
+					return nil
+				}
+				return walkErr
 			}
-			return nil, err
-		}
-		if info.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(entry)
+			if d.IsDir() {
+				return nil
+			}
+			if !hasNomadExtension(d.Name()) {
+				return nil
+			}
+			paths = append(paths, path)
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		rel, err := filepath.Rel(repoPath, entry)
-		if err != nil {
-			rel = entry
+	} else {
+		if hasNomadExtension(info.Name()) {
+			paths = append(paths, searchRoot)
 		}
-		files = append(files, JobFile{Path: rel, FullPath: entry, Content: data})
+	}
+
+	var files []JobFile
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(repoPath, path)
+		if err != nil {
+			rel = path
+		}
+		files = append(files, JobFile{Path: rel, FullPath: path, Content: data})
 	}
 	return files, nil
+}
+
+func hasNomadExtension(name string) bool {
+	return strings.HasSuffix(name, ".nomad") || strings.HasSuffix(name, ".nomad.hcl")
 }
 
 func authMethodForCredential(cred *storage.Credential, payload *storage.CredentialPayload) (transport.AuthMethod, error) {

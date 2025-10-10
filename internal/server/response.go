@@ -30,6 +30,7 @@ type repositoryResponse struct {
 	Name             string                  `json:"name"`
 	RepoURL          string                  `json:"repo_url"`
 	Branch           string                  `json:"branch"`
+	JobPath          string                  `json:"job_path"`
 	CredentialID     *int64                  `json:"credential_id,omitempty"`
 	CreatedAt        time.Time               `json:"created_at"`
 	UpdatedAt        time.Time               `json:"updated_at"`
@@ -46,6 +47,7 @@ func newRepositoryResponse(repo storage.Repository) repositoryResponse {
 		Name:             repo.Name,
 		RepoURL:          repo.RepoURL,
 		Branch:           repo.Branch,
+		JobPath:          repo.JobPath,
 		CredentialID:     nullableInt64(repo.CredentialID),
 		CreatedAt:        repo.CreatedAt,
 		UpdatedAt:        repo.UpdatedAt,

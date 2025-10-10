@@ -102,8 +102,8 @@ Mount `/data` or change `COMPASS_DATABASE_PATH`/`COMPASS_REPO_BASE_DIR` if you p
 ### Repository onboarding workflow
 
 1. Create credentials in the UI (HTTPS token or SSH key). Values are encrypted before hitting disk.
-2. Onboard a repository by providing display name, Git URL, branch, and optional credential.
-3. Nomad Compass clones the repo and watches `.nomad/job.nomad.hcl` plus any additional `.nomad/*.nomad.hcl` files.
+2. Onboard a repository by providing display name, Git URL, branch, optional credential, and the relative path to your job specs (defaults to `.nomad`).
+3. Nomad Compass clones the repo and watches every `*.nomad` and `*.nomad.hcl` file inside that path.
 4. When new commits land, Compass registers each job with metadata:
 
    - `nomad-compass/repo-url`

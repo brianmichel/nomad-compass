@@ -42,6 +42,10 @@
             <span class="label">Source</span>
             {{ repo.repo_url }}
           </span>
+          <span class="meta-pill" :title="repo.job_path">
+            <span class="label">Job path</span>
+            {{ repo.job_path }}
+          </span>
           <span class="meta-pill">
             <span class="label">Credential</span>
             {{ repo.credential_id ? 'Managed secret' : 'Public' }}

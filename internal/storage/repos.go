@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // RepositoryInput is used when creating a repository record.
@@ -11,6 +12,7 @@ type RepositoryInput struct {
 	Name         string
 	RepoURL      string
 	Branch       string
+	JobPath      string
 	CredentialID sql.NullInt64
 }
 
@@ -27,8 +29,12 @@ func NewRepoStore(db *sql.DB) *RepoStore {
 // Create inserts a new repository entry.
 func (s *RepoStore) Create(ctx context.Context, input RepositoryInput) (*Repository, error) {
 	now := Now()
-	res, err := s.db.ExecContext(ctx, `INSERT INTO repos (name, repo_url, branch, credential_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		input.Name, input.RepoURL, input.Branch, nullable(input.CredentialID), now, now)
+	jobPath := strings.TrimSpace(input.JobPath)
+	if jobPath == "" {
+		jobPath = ".nomad"
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO repos (name, repo_url, branch, job_path, credential_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		input.Name, input.RepoURL, input.Branch, jobPath, nullable(input.CredentialID), now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +48,7 @@ func (s *RepoStore) Create(ctx context.Context, input RepositoryInput) (*Reposit
 		Name:         input.Name,
 		RepoURL:      input.RepoURL,
 		Branch:       input.Branch,
+		JobPath:      jobPath,
 		CredentialID: input.CredentialID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -57,7 +64,7 @@ func (s *RepoStore) Delete(ctx context.Context, id int64) error {
 
 // List returns all repositories.
 func (s *RepoStore) List(ctx context.Context) ([]Repository, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, job_path, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +78,7 @@ func (s *RepoStore) List(ctx context.Context) ([]Repository, error) {
 			&repo.Name,
 			&repo.RepoURL,
 			&repo.Branch,
+			&repo.JobPath,
 			&repo.CredentialID,
 			&repo.CreatedAt,
 			&repo.UpdatedAt,
@@ -88,7 +96,7 @@ func (s *RepoStore) List(ctx context.Context) ([]Repository, error) {
 
 // ListByCredential returns repositories linked to a credential.
 func (s *RepoStore) ListByCredential(ctx context.Context, credentialID int64) ([]Repository, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos WHERE credential_id = ? ORDER BY created_at DESC`, credentialID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, repo_url, branch, job_path, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos WHERE credential_id = ? ORDER BY created_at DESC`, credentialID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +110,7 @@ func (s *RepoStore) ListByCredential(ctx context.Context, credentialID int64) ([
 			&repo.Name,
 			&repo.RepoURL,
 			&repo.Branch,
+			&repo.JobPath,
 			&repo.CredentialID,
 			&repo.CreatedAt,
 			&repo.UpdatedAt,
@@ -125,13 +134,14 @@ func (s *RepoStore) ClearCredential(ctx context.Context, credentialID int64) err
 
 // Get fetches a repository by ID.
 func (s *RepoStore) Get(ctx context.Context, id int64) (*Repository, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, repo_url, branch, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, repo_url, branch, job_path, credential_id, created_at, updated_at, last_commit, last_commit_author, last_commit_title, last_polled_at FROM repos WHERE id = ?`, id)
 	var repo Repository
 	if err := row.Scan(
 		&repo.ID,
 		&repo.Name,
 		&repo.RepoURL,
 		&repo.Branch,
+		&repo.JobPath,
 		&repo.CredentialID,
 		&repo.CreatedAt,
 		&repo.UpdatedAt,

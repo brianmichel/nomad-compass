@@ -13,6 +13,7 @@ type Repo = {
   name: string;
   repo_url: string;
   branch: string;
+  job_path: string;
   credential_id?: number | null;
   last_commit?: string | null;
   last_commit_author?: string | null;
@@ -45,6 +46,7 @@ type RepoPayload = {
   name: string;
   repo_url: string;
   branch: string;
+  job_path: string;
   credential_id?: number;
 };
 
@@ -258,4 +260,4 @@ export function useCompassStore() {
   };
 }
 
-export type { Credential, Repo, RepoJob, CompassStatus };
+export type { Credential, Repo, RepoJob, RepoPayload, CompassStatus };
