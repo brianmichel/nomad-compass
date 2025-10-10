@@ -71,29 +71,18 @@
                 <div class="job-heading">
                   <span class="job-name">{{ jobLabel(job) }}</span>
                   <a
-                    v-if="hasMultipleAllocations(job) && job.job_url"
+                    v-if="(isService(job) || isSystem(job)) && job.job_url"
                     class="job-allocations"
                     :href="job.job_url"
                     target="_blank"
-                    rel="noopener noreferrer"
-                    title="View allocations in Nomad"
-                  >
+                    rel="noopener noreferrer">
                     <span
-                      v-for="allocation in job.allocations"
+                      v-for="allocation in visibleAllocations(job)"
                       :key="allocation.id"
                       class="allocation-square"
                       :class="allocationStatusClass(allocation)"
+                      :title="allocationTooltipForAllocation(allocation)"
                     ></span>
-                  </a>
-                  <a
-                    v-else-if="job.latest_allocation_id && job.job_url"
-                    class="job-allocation"
-                    :href="job.job_url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    :title="allocationTooltip(job)"
-                  >
-                    {{ shortAllocation(job.latest_allocation_id) }}
                   </a>
                   <a
                     v-else-if="isBatch(job) && job.job_url"
@@ -254,17 +243,43 @@ function allocationTooltip(job: RepoJob) {
   return parts.join(' • ') || 'View in Nomad';
 }
 
+function allocationTooltipForAllocation(allocation: AllocationStatus) {
+  const parts: string[] = [];
+  if (allocation.name) {
+    parts.push(allocation.name);
+  }
+  if (allocation.id) {
+    parts.push(allocation.id);
+  }
+  if (allocation.status) {
+    parts.push(`Status: ${capitalize(allocation.status)}`);
+  }
+  return parts.join(' • ') || 'View in Nomad';
+}
+
 function isBatch(job: RepoJob) {
   return (job.job_type || '').toLowerCase() === 'batch';
 }
 
+function isService(job: RepoJob) {
+  return (job.job_type || '').toLowerCase() === 'service';
+}
+
+function isSystem(job: RepoJob) {
+  return (job.job_type || '').toLowerCase() === 'system';
+}
+
 function hasMultipleAllocations(job: RepoJob) {
-  return Array.isArray(job.allocations) && job.allocations.length > 1;
+  return visibleAllocations(job).length > 1;
 }
 
 function allocationStatusClass(allocation: AllocationStatus) {
   const status = (allocation.status || '').toLowerCase();
-  if (['running', 'complete', 'successful'].includes(status)) {
+  if (['complete'].includes(status)) {
+    console.log('complete status');
+    return 'completed';
+  }
+  if (['running', 'successful'].includes(status)) {
     return 'healthy';
   }
   if (['starting', 'pending', 'queued', 'evaluating'].includes(status)) {
@@ -280,6 +295,15 @@ function allocationStatusClass(allocation: AllocationStatus) {
     return 'healthy';
   }
   return 'healthy';
+}
+
+function visibleAllocations(job: RepoJob) {
+  if (!Array.isArray(job.allocations)) {
+    return [];
+  }
+  return job.allocations.filter(
+    (allocation) => (allocation.status || '').toLowerCase() === 'running',
+  );
 }
 
 function capitalize(value: string) {
@@ -344,29 +368,31 @@ function capitalize(value: string) {
 .job-allocations {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.4rem;
   padding: 0.15rem 0.3rem;
-  border-radius: 0.6rem;
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  background: rgba(34, 197, 94, 0.12);
   text-decoration: none;
 }
 
-.job-allocations:hover {
-  border-color: rgba(34, 197, 94, 0.6);
-  background: rgba(34, 197, 94, 0.2);
-}
-
 .allocation-square {
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 0.80rem;
+  height: 0.80rem;
   border-radius: 0.2rem;
-  background: #22c55e;
+  background: #3e4741;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+.allocation-square.healthy {
+  background: #22c55e;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.allocation-square.completed {
+  background: #22c55e50;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
 .allocation-square.pending {
-  background: #fbbf24;
+  background: #8824fb;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 

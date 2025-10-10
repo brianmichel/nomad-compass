@@ -51,13 +51,13 @@ type JobStatus struct {
 
 // AllocationStatus captures summary information for an allocation.
 type AllocationStatus struct {
-	ID      string
-	Name    string
-	Client  string
-	Status  string
-	Desired string
-	Group   string
-	Healthy *bool
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Client  string `json:"client,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Desired string `json:"desired,omitempty"`
+	Group   string `json:"group,omitempty"`
+	Healthy *bool  `json:"healthy,omitempty"`
 }
 
 // New constructs a Nomad API wrapper from config.
