@@ -1,11 +1,5 @@
 <template>
   <div class="dashboard-layout">
-    <RepoForm
-      ref="repoFormRef"
-      :credentials="credentials"
-      :saving="savingRepo"
-      @submit="handleRepoSubmit"
-    />
     <RepoList
       :repos="repos"
       :syncing-repo-id="syncingRepoId"
@@ -17,33 +11,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import RepoForm from '../components/RepoForm.vue';
 import RepoList from '../components/RepoList.vue';
-import type { Repo, RepoPayload } from '../composables/useCompassStore';
+import type { Repo } from '../composables/useCompassStore';
 import { useCompassStore } from '../composables/useCompassStore';
 
-const repoFormRef = ref<InstanceType<typeof RepoForm> | null>(null);
-
 const {
-  credentials,
   repos,
-  savingRepo,
   syncingRepoId,
   deletingRepoId,
-  createRepo,
   triggerReconcile,
   deleteRepo,
 } = useCompassStore();
-
-async function handleRepoSubmit(payload: RepoPayload) {
-  try {
-    await createRepo(payload);
-    repoFormRef.value?.reset();
-  } catch (err) {
-    // Error surfaced via store toast
-  }
-}
 
 async function handleReconcile(repo: Repo) {
   try {

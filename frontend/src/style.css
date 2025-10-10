@@ -282,11 +282,6 @@ button:disabled {
   height: 18px;
 }
 
-.refresh-icon {
-  font-size: 0.95rem;
-  color: rgba(226, 232, 240, 0.8);
-}
-
 .loader {
   width: 16px;
   height: 16px;

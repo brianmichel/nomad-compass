@@ -20,12 +20,9 @@
         <span class="pulse" :class="{ offline: !isConnected }"></span>
         {{ statusLabel }}
       </span>
-      <button class="ghost" type="button" @click="$emit('refresh')" :disabled="refreshing">
-        <span class="button-icon">
-          <span v-if="refreshing" class="loader"></span>
-          <span v-else class="refresh-icon">⟳</span>
-        </span>
-        <span>Refresh</span>
+      <button class="primary add-repo-btn" type="button" @click="$emit('add-repo')">
+        <span class="button-icon">＋</span>
+        <span>Add repo</span>
       </button>
     </div>
   </nav>
@@ -36,8 +33,11 @@ import { computed } from 'vue';
 import type { CompassStatus } from '../composables/useCompassStore';
 
 const props = defineProps<{
-  refreshing: boolean;
   status: CompassStatus | null;
+}>();
+
+defineEmits<{
+  (e: 'add-repo'): void;
 }>();
 
 const isConnected = computed(() => props.status?.nomad_connected ?? false);
@@ -77,5 +77,11 @@ const statusTooltip = computed(() => {
   color: #c7d2fe;
   background: rgba(99, 102, 241, 0.25);
   border: 1px solid rgba(129, 140, 248, 0.35);
+}
+
+.add-repo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 </style>
