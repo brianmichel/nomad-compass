@@ -62,7 +62,7 @@ func main() {
 
 	reconciler := reconcile.New(repoStore, fileStore, credStore, gitManager, nomad, cfg.Repo.PollInterval, logger)
 
-	srv := server.New(repoStore, fileStore, credStore, reconciler, nomad, logger)
+	srv := server.New(repoStore, fileStore, credStore, reconciler, nomad, cfg.Nomad.Address, logger)
 	httpServer := &http.Server{Addr: cfg.Server.Address, Handler: srv.Handler()}
 
 	go func() {

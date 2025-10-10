@@ -26,11 +26,36 @@ type RepoJob = {
   path: string;
   job_id?: string;
   job_name?: string;
+  namespace?: string;
+  job_type?: string;
   last_commit?: string | null;
   updated_at: string;
   status?: string;
   status_description?: string;
   status_error?: string;
+  nomad_status?: string;
+  desired_allocations?: number;
+  running_allocations?: number;
+  starting_allocations?: number;
+  queued_allocations?: number;
+  failed_allocations?: number;
+  lost_allocations?: number;
+  unknown_allocations?: number;
+  latest_deployment_id?: string;
+  latest_allocation_id?: string;
+  latest_allocation_name?: string;
+  job_url?: string;
+  allocations?: AllocationStatus[];
+};
+
+type AllocationStatus = {
+  id: string;
+  name?: string;
+  client?: string;
+  status?: string;
+  desired?: string;
+  group?: string;
+  healthy?: boolean | null;
 };
 
 type CredentialPayload = {
@@ -170,11 +195,16 @@ async function createRepo(payload: RepoPayload) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    let createdRepo: Repo | null = null;
     if (!res.ok) {
       const body = await safeJson(res);
       throw new Error(body?.error || 'Failed to create repository');
     }
+    createdRepo = (await res.json()) as Repo;
     await loadRepos();
+    if (createdRepo) {
+      await waitForRepoJobs(createdRepo.id);
+    }
   } catch (err) {
     setError(err);
     throw err;
@@ -260,4 +290,21 @@ export function useCompassStore() {
   };
 }
 
-export type { Credential, Repo, RepoJob, RepoPayload, CompassStatus };
+export type { Credential, Repo, RepoJob, AllocationStatus, RepoPayload, CompassStatus };
+
+async function waitForRepoJobs(repoId: number) {
+  const maxAttempts = 6;
+  const delayMs = 2000;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const repo = state.repos.find((r) => r.id === repoId);
+    if (repo && repo.jobs && repo.jobs.length > 0) {
+      return;
+    }
+    await sleep(delayMs);
+    await loadRepos();
+  }
+}
+
+function sleep(duration: number) {
+  return new Promise((resolve) => setTimeout(resolve, duration));
+}

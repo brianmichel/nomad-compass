@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/nomad/api"
 
@@ -25,11 +27,37 @@ type API struct {
 
 // JobStatus captures a subset of Nomad job health details.
 type JobStatus struct {
-	ID                string
-	Name              string
-	Status            string
-	StatusDescription string
-	Exists            bool
+	ID                   string
+	Name                 string
+	Namespace            string
+	Type                 string
+	Status               string
+	StatusDescription    string
+	DerivedStatus        string
+	DerivedStatusReason  string
+	Exists               bool
+	DesiredAllocs        int
+	RunningAllocs        int
+	StartingAllocs       int
+	QueuedAllocs         int
+	FailedAllocs         int
+	LostAllocs           int
+	UnknownAllocs        int
+	LatestDeploymentID   string
+	LatestAllocationID   string
+	LatestAllocationName string
+	Allocations          []AllocationStatus
+}
+
+// AllocationStatus captures summary information for an allocation.
+type AllocationStatus struct {
+	ID      string
+	Name    string
+	Client  string
+	Status  string
+	Desired string
+	Group   string
+	Healthy *bool
 }
 
 // New constructs a Nomad API wrapper from config.
@@ -91,13 +119,74 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		return &JobStatus{ID: jobID, Exists: false}, nil
 	}
 
-	return &JobStatus{
+	status := &JobStatus{
 		ID:                derefString(job.ID, job.Name),
 		Name:              derefString(job.Name, job.ID),
-		Status:            derefString(job.Status, nil),
+		Namespace:         derefString(job.Namespace, nil),
+		Type:              strings.ToLower(derefString(job.Type, nil)),
+		Status:            strings.ToLower(derefString(job.Status, nil)),
 		StatusDescription: derefString(job.StatusDescription, nil),
 		Exists:            true,
-	}, nil
+		DerivedStatus:     strings.ToLower(derefString(job.Status, nil)),
+	}
+
+	if statusSummaries, _, err := a.client.Jobs().Summary(status.ID, nil); err == nil && statusSummaries != nil && statusSummaries.Summary != nil {
+		var desired, running, starting, queued, failed, lost, unknown int
+		for _, grp := range statusSummaries.Summary {
+			running += grp.Running
+			starting += grp.Starting
+			queued += grp.Queued
+			failed += grp.Failed
+			lost += grp.Lost
+			unknown += grp.Unknown
+		}
+		desired = running + starting + queued + failed + lost + unknown
+		status.DesiredAllocs = desired
+		status.RunningAllocs = running
+		status.StartingAllocs = starting
+		status.QueuedAllocs = queued
+		status.FailedAllocs = failed
+		status.LostAllocs = lost
+		status.UnknownAllocs = unknown
+		status.DerivedStatus, status.DerivedStatusReason = deriveStatus(status)
+	}
+
+	if deployment, _, err := a.client.Jobs().LatestDeployment(status.ID, nil); err == nil && deployment != nil {
+		status.LatestDeploymentID = deployment.ID
+		if status.DerivedStatus == "" {
+			status.DerivedStatus, status.DerivedStatusReason = deriveStatusFromDeployment(status, deployment.Status)
+		}
+	}
+
+	if allocs, _, err := a.client.Jobs().Allocations(status.ID, true, nil); err == nil && len(allocs) > 0 {
+		status.Allocations = make([]AllocationStatus, 0, len(allocs))
+		for _, alloc := range allocs {
+			if alloc == nil {
+				continue
+			}
+			var healthy *bool
+			if alloc.DeploymentStatus != nil {
+				healthy = alloc.DeploymentStatus.Healthy
+			}
+			status.Allocations = append(status.Allocations, AllocationStatus{
+				ID:      alloc.ID,
+				Name:    alloc.Name,
+				Client:  alloc.NodeName,
+				Status:  strings.ToLower(alloc.ClientStatus),
+				Desired: strings.ToLower(alloc.DesiredStatus),
+				Group:   alloc.TaskGroup,
+				Healthy: healthy,
+			})
+		}
+		status.LatestAllocationID = allocs[0].ID
+		status.LatestAllocationName = allocs[0].Name
+	}
+
+	if status.DerivedStatus == "" {
+		status.DerivedStatus = status.Status
+	}
+
+	return status, nil
 }
 
 func derefString(primary *string, fallback *string) string {
@@ -108,4 +197,58 @@ func derefString(primary *string, fallback *string) string {
 		return *fallback
 	}
 	return ""
+}
+
+func deriveStatus(status *JobStatus) (string, string) {
+	if status == nil {
+		return "", ""
+	}
+
+	if status.FailedAllocs > 0 {
+		return "failed", formatAllocationSummary(status)
+	}
+	if status.LostAllocs > 0 {
+		return "lost", formatAllocationSummary(status)
+	}
+	if status.RunningAllocs > 0 && status.DesiredAllocs > 0 {
+		if status.RunningAllocs == status.DesiredAllocs {
+			return "healthy", formatAllocationSummary(status)
+		}
+		return "degraded", formatAllocationSummary(status)
+	}
+	if status.StartingAllocs > 0 || status.QueuedAllocs > 0 {
+		return "deploying", formatAllocationSummary(status)
+	}
+	if status.Status == "pending" {
+		return "pending", formatAllocationSummary(status)
+	}
+	if status.Status == "dead" {
+		return "dead", formatAllocationSummary(status)
+	}
+	return status.Status, formatAllocationSummary(status)
+}
+
+func formatAllocationSummary(status *JobStatus) string {
+	if status == nil {
+		return ""
+	}
+	var desired string
+	if status.DesiredAllocs > 0 {
+		desired = strconv.Itoa(status.DesiredAllocs)
+	} else {
+		desired = "0"
+	}
+	return strconv.Itoa(status.RunningAllocs) + "/" + desired + " allocations running"
+}
+
+func deriveStatusFromDeployment(status *JobStatus, deploymentStatus string) (string, string) {
+	switch strings.ToLower(deploymentStatus) {
+	case api.DeploymentStatusSuccessful:
+		return "healthy", formatAllocationSummary(status)
+	case api.DeploymentStatusRunning, api.DeploymentStatusPending, api.DeploymentStatusUnblocking:
+		return "deploying", formatAllocationSummary(status)
+	case api.DeploymentStatusFailed, api.DeploymentStatusCancelled, api.DeploymentStatusBlocked:
+		return "failed", formatAllocationSummary(status)
+	}
+	return "", ""
 }

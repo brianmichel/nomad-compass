@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -27,10 +29,11 @@ type Server struct {
 	reconciler *reconcile.Manager
 	nomad      nomadclient.Client
 	logger     *slog.Logger
+	nomadAddr  string
 }
 
 // New constructs a Server.
-func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, reconciler *reconcile.Manager, nomad nomadclient.Client, logger *slog.Logger) *Server {
+func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, reconciler *reconcile.Manager, nomad nomadclient.Client, nomadAddr string, logger *slog.Logger) *Server {
 	return &Server{
 		repos:      repos,
 		files:      files,
@@ -38,6 +41,7 @@ func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.
 		reconciler: reconciler,
 		nomad:      nomad,
 		logger:     logger,
+		nomadAddr:  nomadAddr,
 	}
 }
 
@@ -104,8 +108,27 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 				} else if status != nil {
 					if status.Exists {
 						jobResp.JobName = status.Name
-						jobResp.Status = status.Status
-						jobResp.StatusDescription = status.StatusDescription
+						jobResp.Status = status.DerivedStatus
+						if status.DerivedStatusReason != "" {
+							jobResp.StatusDescription = status.DerivedStatusReason
+						} else {
+							jobResp.StatusDescription = status.StatusDescription
+						}
+						jobResp.NomadStatus = status.Status
+						jobResp.Namespace = status.Namespace
+						jobResp.JobType = status.Type
+						jobResp.RunningAllocs = status.RunningAllocs
+						jobResp.DesiredAllocs = status.DesiredAllocs
+						jobResp.StartingAllocs = status.StartingAllocs
+						jobResp.QueuedAllocs = status.QueuedAllocs
+						jobResp.FailedAllocs = status.FailedAllocs
+						jobResp.LostAllocs = status.LostAllocs
+						jobResp.UnknownAllocs = status.UnknownAllocs
+						jobResp.LatestDeploymentID = status.LatestDeploymentID
+						jobResp.LatestAllocationID = status.LatestAllocationID
+						jobResp.LatestAllocationName = status.LatestAllocationName
+						jobResp.Allocations = status.Allocations
+						jobResp.JobURL = jobURL(s.nomadAddr, status.Namespace, status.ID)
 					} else {
 						jobResp.Status = "missing"
 						jobResp.StatusDescription = "Job not found in Nomad"
@@ -255,6 +278,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.NomadMessage = err.Error()
 	}
 	respondJSON(w, resp)
+}
+
+func jobURL(base string, namespace string, jobID string) string {
+	if base == "" || jobID == "" {
+		return ""
+	}
+	trimmed := strings.TrimRight(base, "/")
+	if namespace == "" {
+		namespace = "default"
+	}
+	jobRef := jobID + "@" + namespace
+	return trimmed + "/ui/jobs/" + url.PathEscape(jobRef)
 }
 
 type createRepoRequest struct {

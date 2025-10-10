@@ -68,7 +68,44 @@
               class="job-row"
             >
               <div class="job-info">
-                <span class="job-name">{{ jobLabel(job) }}</span>
+                <div class="job-heading">
+                  <span class="job-name">{{ jobLabel(job) }}</span>
+                  <a
+                    v-if="hasMultipleAllocations(job) && job.job_url"
+                    class="job-allocations"
+                    :href="job.job_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View allocations in Nomad"
+                  >
+                    <span
+                      v-for="allocation in job.allocations"
+                      :key="allocation.id"
+                      class="allocation-square"
+                      :class="allocationStatusClass(allocation)"
+                    ></span>
+                  </a>
+                  <a
+                    v-else-if="job.latest_allocation_id && job.job_url"
+                    class="job-allocation"
+                    :href="job.job_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :title="allocationTooltip(job)"
+                  >
+                    {{ shortAllocation(job.latest_allocation_id) }}
+                  </a>
+                  <a
+                    v-else-if="isBatch(job) && job.job_url"
+                    class="job-batch"
+                    :href="job.job_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View batch job in Nomad"
+                  >
+                    Batch
+                  </a>
+                </div>
                 <span class="job-path">{{ job.path }}</span>
               </div>
               <span
@@ -99,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Repo, RepoJob } from '../composables/useCompassStore';
+import type { Repo, RepoJob, AllocationStatus } from '../composables/useCompassStore';
 
 defineProps<{
   repos: Repo[];
@@ -134,34 +171,50 @@ function jobStatusLabel(job: RepoJob) {
   if (job.status_error) {
     return 'Error';
   }
-  if (!job.job_id) {
-    return 'Pending';
+  const status = (job.status || job.nomad_status || '').toLowerCase();
+  switch (status) {
+    case 'healthy':
+      return 'Healthy';
+    case 'deploying':
+      return 'Deploying';
+    case 'degraded':
+      return 'Degraded';
+    case 'failed':
+      return 'Failed';
+    case 'lost':
+      return 'Lost';
+    case 'pending':
+      return 'Pending';
+    case 'dead':
+      return 'Stopped';
+    case 'missing':
+      return 'Missing';
+    default:
+      if (!job.job_id) {
+        return 'Pending';
+      }
+      if (!status) {
+        return 'Unknown';
+      }
+      return capitalize(status);
   }
-  if (!job.status) {
-    return 'Unknown';
-  }
-  return capitalize(job.status);
 }
 
 function jobStatusClass(job: RepoJob) {
   if (job.status_error) {
     return 'danger';
   }
-  if (!job.job_id) {
-    return 'pending';
-  }
-  if (!job.status) {
-    return 'unknown';
-  }
-
-  const normalized = job.status.toLowerCase();
-  if (['running', 'complete', 'successful'].includes(normalized)) {
+  const normalized = (job.status || job.nomad_status || '').toLowerCase();
+  if (['healthy', 'running', 'successful', 'complete'].includes(normalized)) {
     return 'healthy';
   }
-  if (['pending', 'queued', 'evaluating'].includes(normalized)) {
+  if (['deploying', 'pending', 'queued', 'evaluating', 'starting'].includes(normalized)) {
     return 'pending';
   }
-  if (['failed', 'dead', 'lost', 'missing'].includes(normalized)) {
+  if (['degraded'].includes(normalized)) {
+    return 'warning';
+  }
+  if (['failed', 'dead', 'lost', 'missing', 'cancelled'].includes(normalized)) {
     return 'danger';
   }
   return 'unknown';
@@ -174,13 +227,59 @@ function jobTooltip(job: RepoJob) {
   if (job.status_description) {
     return job.status_description;
   }
+  if (job.nomad_status) {
+    return `Nomad status: ${capitalize(job.nomad_status)}`;
+  }
   if (!job.job_id) {
     return 'Job has not been registered with Nomad yet.';
   }
-  if (!job.status) {
-    return 'Status is unavailable.';
+  return 'Status is unavailable.';
+}
+
+function shortAllocation(id?: string) {
+  if (!id) {
+    return '';
   }
-  return capitalize(job.status);
+  return id.slice(0, 8);
+}
+
+function allocationTooltip(job: RepoJob) {
+  const parts: string[] = [];
+  if (job.latest_allocation_name) {
+    parts.push(job.latest_allocation_name);
+  }
+  if (job.latest_allocation_id) {
+    parts.push(job.latest_allocation_id);
+  }
+  return parts.join(' • ') || 'View in Nomad';
+}
+
+function isBatch(job: RepoJob) {
+  return (job.job_type || '').toLowerCase() === 'batch';
+}
+
+function hasMultipleAllocations(job: RepoJob) {
+  return Array.isArray(job.allocations) && job.allocations.length > 1;
+}
+
+function allocationStatusClass(allocation: AllocationStatus) {
+  const status = (allocation.status || '').toLowerCase();
+  if (['running', 'complete', 'successful'].includes(status)) {
+    return 'healthy';
+  }
+  if (['starting', 'pending', 'queued', 'evaluating'].includes(status)) {
+    return 'pending';
+  }
+  if (['failed', 'lost', 'dead', 'missing', 'cancelled'].includes(status)) {
+    return 'danger';
+  }
+  if (allocation.healthy === false) {
+    return 'danger';
+  }
+  if (allocation.healthy === true) {
+    return 'healthy';
+  }
+  return 'healthy';
 }
 
 function capitalize(value: string) {
@@ -215,9 +314,83 @@ function capitalize(value: string) {
   gap: 0.2rem;
 }
 
+.job-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .job-name {
   font-weight: 600;
   color: #e2e8f0;
+}
+
+.job-allocation {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #38bdf8;
+  text-decoration: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.5rem;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.job-allocation:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: #f0f9ff;
+}
+
+.job-allocations {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+  text-decoration: none;
+}
+
+.job-allocations:hover {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.allocation-square {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 0.2rem;
+  background: #22c55e;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.allocation-square.pending {
+  background: #fbbf24;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.allocation-square.danger {
+  background: #f87171;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.job-batch {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.5rem;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.job-batch:hover {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fef3c7;
 }
 
 .job-path {
@@ -246,6 +419,12 @@ function capitalize(value: string) {
   background: rgba(251, 191, 36, 0.18);
   border-color: rgba(251, 191, 36, 0.4);
   color: #fef3c7;
+}
+
+.job-status-badge.warning {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: rgba(96, 165, 250, 0.45);
+  color: #bfdbfe;
 }
 
 .job-status-badge.danger {
