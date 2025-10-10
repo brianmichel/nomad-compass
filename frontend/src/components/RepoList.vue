@@ -1,13 +1,5 @@
 <template>
-  <section class="panel glass repo-panel">
-    <header class="panel-header">
-      <div>
-        <h2>Tracked repositories</h2>
-        <p v-if="repos.length">Showing {{ repos.length }} sources.</p>
-        <p v-else>Onboard your first repository to start reconciling jobs.</p>
-      </div>
-    </header>
-
+  <section>
     <ul v-if="repos.length" class="repo-list">
       <RepoCard
         v-for="repo in repos"

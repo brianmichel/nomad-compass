@@ -1,5 +1,5 @@
 <template>
-  <div class="job-row">
+  <div class="job-row" :class="{ compact }">
     <div class="job-info">
       <div class="job-heading">
         <span class="job-name">{{ jobLabel(job) }}</span>
@@ -46,6 +46,7 @@ import type { RepoJob, AllocationStatus } from '../composables/useCompassStore';
 
 defineProps<{
   job: RepoJob;
+  compact?: boolean;
 }>();
 
 function jobLabel(job: RepoJob) {
@@ -317,5 +318,35 @@ function capitalize(value: string) {
   background: rgba(100, 116, 139, 0.25);
   border-color: rgba(100, 116, 139, 0.35);
   color: rgba(226, 232, 240, 0.8);
+}
+
+.job-row.compact {
+  padding: 0.6rem 0.65rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.job-row.compact .job-info {
+  width: 100%;
+  gap: 0.3rem;
+}
+
+.job-row.compact .job-heading {
+  width: 100%;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.job-row.compact .job-name {
+  font-size: 0.9rem;
+}
+
+.job-row.compact .job-path {
+  font-size: 0.75rem;
+}
+
+.job-row.compact .job-status-badge {
+  align-self: flex-start;
 }
 </style>
