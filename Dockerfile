@@ -8,8 +8,8 @@ COPY frontend/ .
 RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.24 AS backend
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 ENV CGO_ENABLED=0
 WORKDIR /workspace
 COPY go.mod go.sum ./

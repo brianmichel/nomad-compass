@@ -1,6 +1,6 @@
-variable "dc1" {
+variable "dc" {
   type    = string
-  default = "dc1"
+  default = "*"
 }
 
 variable "region" {
@@ -29,8 +29,9 @@ variable "credential_key" {
 }
 
 job "compass" {
-  datacenters = [var.dc1]
+  datacenters = [var.dc]
   region      = var.region
+  namespace = "system"
 
   group "compass" {
     count = 1
