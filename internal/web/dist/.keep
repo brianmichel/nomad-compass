@@ -1,0 +1,1 @@
+Placeholder to satisfy go:embed during tests; real assets are built in CI.
