@@ -16,24 +16,46 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
-	"github.com/brianmichel/nomad-compass/internal/reconcile"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 	"github.com/brianmichel/nomad-compass/internal/web"
 )
 
+// Interfaces are defined here to make the HTTP server easier to test and to
+// allow alternate implementations (e.g. caching layers) in the future without
+// touching handler code.
+type repoStore interface {
+	List(ctx context.Context) ([]storage.Repository, error)
+	Create(ctx context.Context, input storage.RepositoryInput) (*storage.Repository, error)
+}
+
+type repoFileStore interface {
+	ListByRepo(ctx context.Context, repoID int64) ([]storage.RepoFile, error)
+}
+
+type credentialStore interface {
+	List(ctx context.Context) ([]storage.Credential, error)
+	Create(ctx context.Context, name string, ctype storage.CredentialType, payload storage.CredentialPayload) (*storage.Credential, error)
+}
+
+type reconcileManager interface {
+	ReconcileRepo(ctx context.Context, repoID int64) error
+	DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error
+	DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error
+}
+
 // Server exposes HTTP handlers for UI and API requests.
 type Server struct {
-	repos      *storage.RepoStore
-	files      *storage.RepoFileStore
-	creds      *storage.CredentialStore
-	reconciler *reconcile.Manager
+	repos      repoStore
+	files      repoFileStore
+	creds      credentialStore
+	reconciler reconcileManager
 	nomad      nomadclient.Client
 	logger     *slog.Logger
 	nomadAddr  string
 }
 
 // New constructs a Server.
-func New(repos *storage.RepoStore, files *storage.RepoFileStore, creds *storage.CredentialStore, reconciler *reconcile.Manager, nomad nomadclient.Client, nomadAddr string, logger *slog.Logger) *Server {
+func New(repos repoStore, files repoFileStore, creds credentialStore, reconciler reconcileManager, nomad nomadclient.Client, nomadAddr string, logger *slog.Logger) *Server {
 	return &Server{
 		repos:      repos,
 		files:      files,
@@ -82,68 +104,12 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	repos, err := s.repos.List(ctx)
+	repos, err := s.listRepositoryResponses(ctx)
 	if err != nil {
 		respondErr(w, err)
 		return
 	}
-	resp := make([]repositoryResponse, 0, len(repos))
-	for _, repo := range repos {
-		files, err := s.files.ListByRepo(ctx, repo.ID)
-		if err != nil {
-			respondErr(w, err)
-			return
-		}
-
-		jobResponses := make([]repositoryJobResponse, 0, len(files))
-		for _, file := range files {
-			jobResp := newRepositoryJobResponse(file)
-			if file.JobID.Valid && file.JobID.String != "" {
-				jobResp.JobID = file.JobID.String
-
-				status, err := s.nomad.JobStatus(ctx, file.JobID.String)
-				if err != nil {
-					s.logger.Warn("fetch job status failed", "repo_id", repo.ID, "repo", repo.Name, "job_id", file.JobID.String, "error", err)
-					jobResp.StatusError = err.Error()
-				} else if status != nil {
-					if status.Exists {
-						jobResp.JobName = status.Name
-						jobResp.Status = status.DerivedStatus
-						if status.DerivedStatusReason != "" {
-							jobResp.StatusDescription = status.DerivedStatusReason
-						} else {
-							jobResp.StatusDescription = status.StatusDescription
-						}
-						jobResp.NomadStatus = status.Status
-						jobResp.Namespace = status.Namespace
-						jobResp.JobType = status.Type
-						jobResp.RunningAllocs = status.RunningAllocs
-						jobResp.DesiredAllocs = status.DesiredAllocs
-						jobResp.StartingAllocs = status.StartingAllocs
-						jobResp.QueuedAllocs = status.QueuedAllocs
-						jobResp.FailedAllocs = status.FailedAllocs
-						jobResp.LostAllocs = status.LostAllocs
-						jobResp.UnknownAllocs = status.UnknownAllocs
-						jobResp.LatestDeploymentID = status.LatestDeploymentID
-						jobResp.LatestAllocationID = status.LatestAllocationID
-						jobResp.LatestAllocationName = status.LatestAllocationName
-						jobResp.Allocations = status.Allocations
-						jobResp.JobURL = jobURL(s.nomadAddr, status.Namespace, status.ID)
-					} else {
-						jobResp.Status = "missing"
-						jobResp.StatusDescription = "Job not found in Nomad"
-					}
-				}
-			}
-
-			jobResponses = append(jobResponses, jobResp)
-		}
-
-		repoResp := newRepositoryResponse(repo)
-		repoResp.Jobs = jobResponses
-		resp = append(resp, repoResp)
-	}
-	respondJSON(w, resp)
+	respondJSON(w, repos)
 }
 
 func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
@@ -168,11 +134,15 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func(repoID int64) {
-		if err := s.reconciler.ReconcileRepo(context.Background(), repoID); err != nil {
-			s.logger.Error("initial reconcile failed", "repo_id", repoID, "error", err)
-		}
-	}(repo.ID)
+	if s.reconciler != nil {
+		go func(repoID int64) {
+			if err := s.reconciler.ReconcileRepo(context.Background(), repoID); err != nil {
+				if s.logger != nil {
+					s.logger.Error("initial reconcile failed", "repo_id", repoID, "error", err)
+				}
+			}
+		}(repo.ID)
+	}
 
 	respondJSON(w, newRepositoryResponse(*repo))
 }
