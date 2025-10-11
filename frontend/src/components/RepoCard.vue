@@ -56,6 +56,21 @@
             {{ repo.credential_id ? 'Managed secret' : 'Public' }}
           </span>
         </div>
+        <div class="info-cell">
+          <span class="info-label">Last Checked</span>
+          <span class="info-value">
+            <template v-if="repo.last_polled_at">
+              <time
+                class="commit-polled"
+                :datetime="repo.last_polled_at"
+                :title="formatTimestamp(repo.last_polled_at)"
+              >
+                {{ formatRelativeTime(repo.last_polled_at) }}
+              </time>
+            </template>
+            <span v-else class="commit-polled pending">Awaiting first poll</span>
+          </span>
+        </div>
       </div>
       <RepoPollingInfo class="repo-info-commit" :repo="repo" />
     </section>
@@ -82,6 +97,56 @@ const emit = defineEmits<{
 
 const isSyncing = computed(() => props.syncingRepoId === props.repo.id);
 const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return 'Awaiting first poll';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return 'Awaiting first poll';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const now = new Date();
+  const diff = date.getTime() - now.getTime();
+  const absDiff = Math.abs(diff);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  const thresholds = [
+    { limit: year, unit: 'year', value: year },
+    { limit: month, unit: 'month', value: month },
+    { limit: week, unit: 'week', value: week },
+    { limit: day, unit: 'day', value: day },
+    { limit: hour, unit: 'hour', value: hour },
+    { limit: minute, unit: 'minute', value: minute },
+  ] as const;
+
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+  for (const threshold of thresholds) {
+    if (absDiff >= threshold.limit) {
+      const amount = Math.round(diff / threshold.value);
+      return rtf.format(amount, threshold.unit);
+    }
+  }
+
+  const seconds = Math.round(diff / 1000);
+  if (Math.abs(seconds) < 1) {
+    return 'just now';
+  }
+  return rtf.format(seconds, 'second');
+}
 </script>
 
 <style scoped>
@@ -143,9 +208,32 @@ const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
 
 .repo-info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, 1fr); /* exactly 2 columns */
+  grid-template-rows: repeat(2, 1fr);   /* exactly 2 rows */
   min-width: 0;
   border-bottom: 1px solid rgba(71, 85, 105, 0.35);
+}
+
+/* Base: remove item borders */
+.repo-info-grid > * {
+  border: none;
+  padding: 0.75rem;
+}
+
+/* Add separators between cells without doubling on the right/bottom */
+.repo-info-grid > * {
+  border-right: 1px solid rgba(71, 85, 105, 0.35);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
+}
+
+/* Remove right border on items in the last column */
+.repo-info-grid > *:nth-child(2n) {
+  border-right: none;
+}
+
+/* Remove bottom border on items in the last row (items 3 and 4 for a 2x2) */
+.repo-info-grid > *:nth-child(n+3) {
+  border-bottom: none;
 }
 
 .info-cell {
@@ -155,6 +243,7 @@ const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
   padding: 0.75rem 0.85rem;
   min-width: 0;
   border-right: 1px solid rgba(71, 85, 105, 0.35);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
 }
 
 .info-cell:last-child {

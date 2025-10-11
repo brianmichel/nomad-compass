@@ -7,17 +7,6 @@
         </p>
         <div class="commit-meta">
           <span class="author-name">{{ repo.last_commit_author || 'Unknown author' }}</span>
-          <span class="commit-action">committed</span>
-          <template v-if="repo.last_polled_at">
-            <time
-              class="commit-polled"
-              :datetime="repo.last_polled_at"
-              :title="formatTimestamp(repo.last_polled_at)"
-            >
-              {{ formatRelativeTime(repo.last_polled_at) }}
-            </time>
-          </template>
-          <span v-else class="commit-polled pending">Awaiting first poll</span>
         </div>
       </div>
 
