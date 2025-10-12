@@ -59,18 +59,18 @@ const statusTooltip = computed(() => {
 <style scoped>
 .topbar {
   width: 100%;
-  background: linear-gradient(118deg, var(--color-brand-dark), var(--color-brand));
+  background: var(--color-brand);
   color: #ffffff;
-  box-shadow: 0 18px 40px -32px rgba(15, 23, 42, 0.6);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .topbar__inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 1rem clamp(1rem, 4vw, 2.5rem);
+  padding: 0.75rem clamp(1rem, 3vw, 2.25rem);
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
 .brand {
@@ -81,15 +81,14 @@ const statusTooltip = computed(() => {
 }
 
 .brand-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .brand-glyph {
@@ -104,7 +103,7 @@ const statusTooltip = computed(() => {
 
 .brand-title {
   font-weight: 600;
-  font-size: 1.18rem;
+  font-size: 1.08rem;
   letter-spacing: 0.01em;
 }
 
@@ -123,23 +122,21 @@ const statusTooltip = computed(() => {
 }
 
 .nav-link {
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.78);
-  padding: 0.45rem 0.85rem;
-  border-radius: var(--radius-pill);
-  transition: background-color var(--transition-base), color var(--transition-base), box-shadow var(--transition-base);
+  color: rgba(255, 255, 255, 0.8);
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-base);
 }
 
 .nav-link:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.16);
 }
 
 .nav-link.active {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 -3px 0 rgba(29, 111, 228, 0.8);
+  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.85);
 }
 
 .add-repo-btn {
@@ -151,27 +148,26 @@ const statusTooltip = computed(() => {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-left: 1.5rem;
+  gap: 0.75rem;
+  margin-left: 1.25rem;
   flex-shrink: 0;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  font-size: 0.82rem;
-  padding: 0.35rem 0.75rem;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .status-badge.offline {
-  background: rgba(217, 45, 32, 0.18);
-  border-color: rgba(217, 45, 32, 0.4);
-  color: #ffffff;
+  background: rgba(217, 45, 32, 0.2);
+  border-color: rgba(217, 45, 32, 0.45);
 }
 
 @media (max-width: 960px) {

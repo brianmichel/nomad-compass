@@ -56,6 +56,7 @@ async function handleDelete(credential: Credential) {
 .settings-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.75rem;
+  gap: 1.25rem;
+  align-items: start;
 }
 </style>

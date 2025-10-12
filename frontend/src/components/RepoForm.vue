@@ -84,19 +84,19 @@ defineExpose({ reset, form });
 <style scoped>
 .repo-form {
   width: 100%;
-  padding: clamp(1.75rem, 3vw, 2.25rem);
+  padding: clamp(1.6rem, 3vw, 2rem);
   background: var(--color-surface);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--color-border-soft);
-  box-shadow: var(--shadow-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.4rem;
 }
 
 .repo-form__header h2 {
   margin: 0;
-  font-size: 1.32rem;
+  font-size: 1.18rem;
   font-weight: 600;
   color: var(--color-text-primary);
 }
@@ -111,7 +111,7 @@ defineExpose({ reset, form });
 .repo-form__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem 1.25rem;
+  gap: 0.9rem 1.1rem;
 }
 
 .span-2 {

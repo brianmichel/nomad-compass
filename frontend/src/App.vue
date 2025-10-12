@@ -88,7 +88,7 @@ function closeRepoModal() {
 
 .content-frame {
   flex: 1;
-  padding: clamp(1.5rem, 4vw, 3rem);
+  padding: clamp(1.25rem, 3vw, 2.25rem);
 }
 
 .content-container {
@@ -96,7 +96,7 @@ function closeRepoModal() {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: clamp(1.5rem, 3vw, 2.5rem);
+  gap: clamp(1.2rem, 2.5vw, 2rem);
 }
 
 .modal-backdrop {

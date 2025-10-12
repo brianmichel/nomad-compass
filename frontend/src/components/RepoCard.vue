@@ -1,87 +1,102 @@
 <template>
-  <li
-    class="repo-card"
-    :class="{ active: isSyncing }"
-  >
-    <header class="repo-card-header">
-      <div class="repo-title">
-        <h3 class="repo-name">{{ repo.name }}</h3>
-        <span class="repo-branch-chip" v-if="repo.branch">{{ repo.branch }}</span>
+  <tr class="repo-row" :class="{ syncing: isSyncing }">
+    <td class="cell-toggle">
+      <button
+        class="row-toggle"
+        type="button"
+        :aria-expanded="expanded.toString()"
+        :aria-label="`Toggle details for ${repo.name}`"
+        @click="toggleExpanded"
+      >
+        <span class="caret" :class="{ open: expanded }"></span>
+      </button>
+    </td>
+    <td class="cell-name">
+      <div class="name-block">
+        <span class="repo-name">{{ repo.name }}</span>
+        <span class="job-path" :title="repo.job_path">{{ repo.job_path }}</span>
       </div>
-      <div class="repo-controls">
-        <button
-          class="ghost small control-button"
-          type="button"
-          @click="emit('reconcile', repo)"
-          :disabled="isSyncing"
+    </td>
+    <td class="cell-source">
+      <a
+        :href="repo.repo_url"
+        class="source-link"
+        :title="repo.repo_url"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {{ repo.repo_url }}
+      </a>
+    </td>
+    <td class="cell-branch">
+      <span class="branch-chip" v-if="repo.branch">{{ repo.branch }}</span>
+    </td>
+    <td class="cell-credential">{{ credentialLabel }}</td>
+    <td class="cell-timestamp">
+      <template v-if="repo.last_polled_at">
+        <time
+          class="polled-time"
+          :datetime="lastPolledDatetime"
+          :title="lastPolledAbsolute"
         >
-          <span v-if="isSyncing" class="loader"></span>
-          <span v-else>Sync now</span>
-        </button>
-        <button
-          class="ghost danger small control-button"
-          type="button"
-          @click="emit('delete', repo)"
-          :disabled="isDeleting"
+          {{ lastPolledRelative }}
+        </time>
+      </template>
+      <span v-else class="polled-pending">Awaiting poll</span>
+    </td>
+    <td class="cell-jobs">
+      <div v-if="jobSummaries.length" class="job-statuses">
+        <span
+          v-for="summary in jobSummaries"
+          :key="summary.key"
+          class="job-status-chip"
+          :class="summary.state"
+          :title="summary.tooltip"
         >
-          <span v-if="isDeleting" class="loader"></span>
-          <span v-else>Delete</span>
-        </button>
+          {{ summary.label }}
+        </span>
+        <span v-if="jobOverflow > 0" class="job-status-chip more">+{{ jobOverflow }}</span>
       </div>
-    </header>
-
-    <section class="repo-info">
-      <div class="repo-info-grid">
-        <div class="info-cell">
-          <span class="info-label">Source</span>
-          <a
-            :href="repo.repo_url"
-            class="info-value link"
-            :title="repo.repo_url"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ repo.repo_url }}
-          </a>
-        </div>
-        <div class="info-cell">
-          <span class="info-label">Job path</span>
-          <span class="info-value" :title="repo.job_path">
-            {{ repo.job_path }}
-          </span>
-        </div>
-        <div class="info-cell">
-          <span class="info-label">Credential</span>
-          <span class="info-value">{{ credentialLabel }}</span>
-        </div>
-        <div class="info-cell">
-          <span class="info-label">Last Checked</span>
-          <span class="info-value">
-            <template v-if="repo.last_polled_at">
-              <time
-                class="commit-polled"
-                :datetime="lastPolledDatetime"
-                :title="lastPolledAbsolute"
-              >
-                {{ lastPolledRelative }}
-              </time>
-            </template>
-            <span v-else class="commit-polled pending">Awaiting first poll</span>
-          </span>
-        </div>
+      <span v-else class="job-status-empty">No jobs</span>
+    </td>
+    <td class="cell-actions">
+      <button
+        class="ghost small"
+        type="button"
+        @click="emit('reconcile', repo)"
+        :disabled="isSyncing"
+      >
+        <span v-if="isSyncing" class="loader"></span>
+        <span v-else>Sync now</span>
+      </button>
+      <button
+        class="ghost danger small"
+        type="button"
+        @click="emit('delete', repo)"
+        :disabled="isDeleting"
+      >
+        <span v-if="isDeleting" class="loader"></span>
+        <span v-else>Delete</span>
+      </button>
+    </td>
+  </tr>
+  <tr v-if="expanded" class="repo-detail-row">
+    <td colspan="8">
+      <div class="repo-detail">
+        <RepoPollingInfo :repo="repo" />
+        <RepoJobList :jobs="repo.jobs" />
       </div>
-      <RepoPollingInfo class="repo-info-commit" :repo="repo" />
-    </section>
-    <RepoJobList :jobs="repo.jobs" />
-  </li>
+    </td>
+  </tr>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import RepoJobList from './RepoJobList.vue';
 import RepoPollingInfo from './RepoPollingInfo.vue';
 import type { Repo } from '@/types';
 import { formatRelativeTime, formatTimestamp } from '@/utils/date';
+import { getJobStatusClass, getJobStatusLabel, getJobStatusTooltip } from '@/utils/jobStatus';
 
 const props = defineProps<{
   repo: Repo;
@@ -94,187 +109,248 @@ const emit = defineEmits<{
   (e: 'delete', repo: Repo): void;
 }>();
 
+const expanded = ref(false);
+
 const isSyncing = computed(() => props.syncingRepoId === props.repo.id);
 const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
 const credentialLabel = computed(() => (props.repo.credential_id ? 'Managed secret' : 'Public'));
 const lastPolledRelative = computed(() => formatRelativeTime(props.repo.last_polled_at));
 const lastPolledAbsolute = computed(() => formatTimestamp(props.repo.last_polled_at));
 const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined);
+
+const jobSummaries = computed(() =>
+  (props.repo.jobs ?? []).slice(0, 4).map((job) => ({
+    key: job.job_id || job.path,
+    label: getJobStatusLabel(job),
+    state: getJobStatusClass(job),
+    tooltip: getJobStatusTooltip(job),
+  })),
+);
+
+const jobOverflow = computed(() => Math.max(0, (props.repo.jobs?.length ?? 0) - jobSummaries.value.length));
+
+function toggleExpanded() {
+  expanded.value = !expanded.value;
+}
 </script>
 
 <style scoped>
-.repo-card {
-  list-style: none;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  padding: clamp(1.4rem, 3vw, 1.85rem);
-  border-radius: var(--radius-lg);
+.repo-row td {
+  vertical-align: top;
+}
+
+.repo-row.syncing td {
+  background: rgba(23, 106, 209, 0.06);
+}
+
+.cell-toggle {
+  width: 36px;
+  padding-right: 0;
+}
+
+.row-toggle {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-soft);
-  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
-.repo-card:hover {
-  border-color: var(--color-border-strong);
-  box-shadow: var(--shadow-card);
-  transform: translateY(-2px);
-}
-
-.repo-card.active {
+.row-toggle:hover,
+.row-toggle:focus-visible {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(29, 111, 228, 0.18), var(--shadow-card);
-}
-
-.repo-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.repo-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.repo-card-header .repo-name {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.repo-branch-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.6rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-muted);
-  border: 1px solid rgba(29, 111, 228, 0.35);
-  color: var(--color-accent);
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.repo-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.control-button {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.8rem;
-}
-
-.repo-info {
-  margin: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
   background: var(--color-surface-muted);
 }
 
-.repo-info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  min-width: 0;
-  border-bottom: 1px solid var(--color-border);
+.caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
 }
 
-.repo-info-grid > * {
-  padding: 0.8rem 0.9rem;
-  border-right: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+.caret.open {
+  transform: rotate(90deg);
 }
 
-.repo-info-grid > *:nth-child(2n) {
-  border-right: none;
+.cell-name {
+  max-width: 220px;
 }
 
-.repo-info-grid > *:nth-child(n+3) {
-  border-bottom: none;
-}
-
-.info-cell {
+.name-block {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  min-width: 0;
+  gap: 0.15rem;
 }
 
-.info-cell:last-child {
-  border-right: none;
+.repo-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 0.96rem;
 }
 
-.info-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+.job-path {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   color: var(--color-text-subtle);
-}
-
-.info-value {
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.info-value.link {
-  color: var(--color-accent);
-  text-decoration: none;
-  transition: color var(--transition-fast);
-}
-
-.info-value.link:hover,
-.info-value.link:focus-visible {
-  color: var(--color-accent-hover);
-}
-
-.commit-polled {
+.source-link {
+  display: inline-block;
+  max-width: 280px;
+  font-size: 0.88rem;
   color: var(--color-text-secondary);
-  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.commit-polled.pending {
+.source-link:hover,
+.source-link:focus-visible {
+  color: var(--color-accent);
+}
+
+.branch-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.cell-credential {
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.cell-timestamp {
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.polled-time {
+  color: var(--color-text-secondary);
+}
+
+.polled-pending {
+  color: var(--color-text-subtle);
+  font-style: italic;
+}
+
+.cell-jobs {
+  min-width: 180px;
+}
+
+.job-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.job-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--status-unknown-border);
+  background: var(--status-unknown-bg);
+  color: var(--status-unknown-text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.job-status-chip.healthy {
+  border-color: var(--status-healthy-border);
+  background: var(--status-healthy-bg);
+  color: var(--status-healthy-text);
+}
+
+.job-status-chip.pending {
+  border-color: var(--status-pending-border);
+  background: var(--status-pending-bg);
+  color: var(--status-pending-text);
+}
+
+.job-status-chip.warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
   color: var(--status-warning-text);
 }
 
-.repo-info-commit {
-  border-top: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.7);
+.job-status-chip.danger {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+.job-status-chip.more {
+  border-style: dashed;
+}
+
+.job-status-empty {
+  color: var(--color-text-subtle);
+  font-size: 0.85rem;
+}
+
+.cell-actions {
+  text-align: right;
+  white-space: nowrap;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.repo-detail-row td {
+  padding: 0;
+  border-top: none;
+  background: var(--color-surface-subtle);
+}
+
+.repo-detail-row:hover td {
+  background: var(--color-surface-subtle);
+}
+
+.repo-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.2rem 1.4rem;
+}
+
+@media (max-width: 960px) {
+  .cell-source,
+  .cell-credential {
+    max-width: 200px;
+  }
+
+  .cell-jobs {
+    min-width: 140px;
+  }
 }
 
 @media (max-width: 768px) {
-  .repo-card-header {
-    flex-direction: column;
-    align-items: flex-start;
+  .cell-source,
+  .cell-branch {
+    display: none;
   }
 
-  .repo-controls {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .repo-info-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .repo-info-grid > * {
-    border-right: none;
+  .repo-detail {
+    padding: 1rem;
   }
 }
 </style>

@@ -2,16 +2,16 @@
   <div class="job-row" :class="{ compact }">
     <div class="job-info">
       <div class="job-heading">
-        <span class="job-name">{{ jobLabel(job) }}</span>
+        <span class="job-name">{{ jobName }}</span>
         <a
-          v-if="(isService(job) || isSystem(job)) && job.job_url"
+          v-if="showAllocationLink"
           class="job-allocations"
           :href="job.job_url"
           target="_blank"
           rel="noopener noreferrer"
         >
           <span
-            v-for="allocation in visibleAllocations(job)"
+            v-for="allocation in runningAllocations"
             :key="allocation.id"
             class="allocation-square"
             :class="allocationStatusClass(allocation)"
@@ -19,7 +19,7 @@
           ></span>
         </a>
         <a
-          v-else-if="isBatch(job) && job.job_url"
+          v-else-if="isBatchJob && job.job_url"
           class="job-batch"
           :href="job.job_url"
           target="_blank"
@@ -33,115 +33,46 @@
     </div>
     <span
       class="job-status-badge"
-      :class="jobStatusClass(job)"
-      :title="jobTooltip(job)"
+      :class="statusClass"
+      :title="statusTooltip"
     >
-      {{ jobStatusLabel(job) }}
+      {{ statusLabel }}
     </span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { RepoJob, AllocationStatus } from '@/types';
+import { getJobStatusClass, getJobStatusLabel, getJobStatusTooltip } from '@/utils/jobStatus';
 
-defineProps<{
+const props = defineProps<{
   job: RepoJob;
   compact?: boolean;
 }>();
 
-function jobLabel(job: RepoJob) {
-  return job.job_name || job.job_id || job.path;
-}
+const jobName = computed(() => props.job.job_name || props.job.job_id || props.job.path);
+const statusClass = computed(() => getJobStatusClass(props.job));
+const statusLabel = computed(() => getJobStatusLabel(props.job));
+const statusTooltip = computed(() => getJobStatusTooltip(props.job));
 
-function jobStatusLabel(job: RepoJob) {
-  if (job.status_error) {
-    return 'Error';
-  }
-  const status = (job.status || job.nomad_status || '').toLowerCase();
-  switch (status) {
-    case 'healthy':
-      return 'Healthy';
-    case 'deploying':
-      return 'Deploying';
-    case 'degraded':
-      return 'Degraded';
-    case 'failed':
-      return 'Failed';
-    case 'lost':
-      return 'Lost';
-    case 'pending':
-      return 'Pending';
-    case 'dead':
-      return 'Stopped';
-    case 'missing':
-      return 'Missing';
-    default:
-      if (!job.job_id) {
-        return 'Pending';
-      }
-      if (!status) {
-        return 'Unknown';
-      }
-      return capitalize(status);
-  }
-}
+const jobType = computed(() => (props.job.job_type || '').toLowerCase());
+const isServiceJob = computed(() => jobType.value === 'service');
+const isSystemJob = computed(() => jobType.value === 'system');
+const isBatchJob = computed(() => jobType.value === 'batch');
 
-function jobStatusClass(job: RepoJob) {
-  if (job.status_error) {
-    return 'danger';
-  }
-  const normalized = (job.status || job.nomad_status || '').toLowerCase();
-  if (['healthy', 'running', 'successful', 'complete'].includes(normalized)) {
-    return 'healthy';
-  }
-  if (['deploying', 'pending', 'queued', 'evaluating', 'starting'].includes(normalized)) {
-    return 'pending';
-  }
-  if (['degraded'].includes(normalized)) {
-    return 'warning';
-  }
-  if (['failed', 'dead', 'lost', 'missing', 'cancelled'].includes(normalized)) {
-    return 'danger';
-  }
-  return 'unknown';
-}
+const showAllocationLink = computed(
+  () => (isServiceJob.value || isSystemJob.value) && Boolean(props.job.job_url),
+);
 
-function jobTooltip(job: RepoJob) {
-  if (job.status_error) {
-    return job.status_error;
+const runningAllocations = computed(() => {
+  if (!Array.isArray(props.job.allocations)) {
+    return [] as AllocationStatus[];
   }
-  if (job.status_description) {
-    return job.status_description;
-  }
-  if (job.nomad_status) {
-    return `Nomad status: ${capitalize(job.nomad_status)}`;
-  }
-  if (!job.job_id) {
-    return 'Job has not been registered with Nomad yet.';
-  }
-  return 'Status is unavailable.';
-}
-
-function isBatch(job: RepoJob) {
-  return (job.job_type || '').toLowerCase() === 'batch';
-}
-
-function isService(job: RepoJob) {
-  return (job.job_type || '').toLowerCase() === 'service';
-}
-
-function isSystem(job: RepoJob) {
-  return (job.job_type || '').toLowerCase() === 'system';
-}
-
-function visibleAllocations(job: RepoJob) {
-  if (!Array.isArray(job.allocations)) {
-    return [];
-  }
-  return job.allocations.filter(
+  return props.job.allocations.filter(
     (allocation) => (allocation.status || '').toLowerCase() === 'running',
   );
-}
+});
 
 function allocationStatusClass(allocation: AllocationStatus) {
   const status = (allocation.status || '').toLowerCase();
@@ -191,24 +122,20 @@ function capitalize(value: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 0.85rem;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--color-border);
-  gap: 1rem;
-  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast);
+  gap: 1.2rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
-.job-row:hover {
-  border-color: var(--color-border-strong);
-  box-shadow: var(--shadow-soft);
-  transform: translateY(-1px);
+.job-row:last-child {
+  border-bottom: none;
 }
 
 .job-info {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
 .job-heading {
@@ -220,22 +147,22 @@ function capitalize(value: string) {
 .job-name {
   font-weight: 600;
   color: var(--color-text-primary);
+  font-size: 0.92rem;
 }
 
 .job-allocations {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.15rem 0.3rem;
+  gap: 0.3rem;
   text-decoration: none;
 }
 
 .allocation-square {
-  width: 0.85rem;
-  height: 0.85rem;
-  border-radius: 0.22rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
   background: var(--color-border);
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.5);
   transition: opacity var(--transition-fast);
 }
 
@@ -264,13 +191,13 @@ function capitalize(value: string) {
 }
 
 .job-batch {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--status-warning-text);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   text-decoration: none;
-  padding: 0.12rem 0.5rem;
+  padding: 0.1rem 0.4rem;
   border-radius: var(--radius-pill);
   background: var(--status-warning-bg);
   border: 1px solid var(--status-warning-border);
@@ -282,13 +209,16 @@ function capitalize(value: string) {
 }
 
 .job-path {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .job-status-badge {
-  font-size: 0.78rem;
-  padding: 0.28rem 0.7rem;
+  font-size: 0.76rem;
+  padding: 0.22rem 0.55rem;
   border-radius: var(--radius-pill);
   text-transform: none;
   border: 1px solid var(--status-unknown-border);
@@ -328,32 +258,17 @@ function capitalize(value: string) {
 }
 
 .job-row.compact {
-  padding: 0.6rem 0.65rem;
+  padding: 0.5rem 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.6rem;
-}
-
-.job-row.compact .job-info {
-  width: 100%;
-  gap: 0.3rem;
-}
-
-.job-row.compact .job-heading {
-  width: 100%;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.job-row.compact .job-name {
-  font-size: 0.9rem;
-}
-
-.job-row.compact .job-path {
-  font-size: 0.75rem;
+  gap: 0.5rem;
 }
 
 .job-row.compact .job-status-badge {
   align-self: flex-start;
+}
+
+.job-row.compact .job-info {
+  width: 100%;
 }
 </style>
