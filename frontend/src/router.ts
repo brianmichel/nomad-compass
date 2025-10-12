@@ -4,12 +4,12 @@ const routes = [
   {
     path: '/',
     name: 'dashboard',
-    component: () => import('./views/DashboardView.vue'),
+    component: () => import('@/views/DashboardView.vue'),
   },
   {
     path: '/settings',
     name: 'settings',
-    component: () => import('./views/SettingsView.vue'),
+    component: () => import('@/views/SettingsView.vue'),
   },
   {
     path: '/:pathMatch(.*)*',

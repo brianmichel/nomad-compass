@@ -30,7 +30,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CompassStatus } from '../composables/useCompassStore';
+import type { CompassStatus } from '@/types';
 
 const props = defineProps<{
   status: CompassStatus | null;

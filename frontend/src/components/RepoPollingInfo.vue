@@ -18,14 +18,14 @@
         rel="noopener noreferrer"
         :title="`View commit ${repo.last_commit}`"
       >
-        {{ commitDisplay(repo.last_commit) }}
+        {{ commitHash }}
       </a>
       <code
         v-else-if="repo.last_commit"
         class="commit-hash"
         :title="repo.last_commit || 'Awaiting first run'"
       >
-        {{ commitDisplay(repo.last_commit) }}
+        {{ commitHash }}
       </code>
     </div>
   </section>
@@ -33,100 +33,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Repo } from '../composables/useCompassStore';
+import type { Repo } from '@/types';
+import { buildCommitUrl, formatCommitHash } from '@/utils/repos';
 
-const props = defineProps<{
-  repo: Repo;
-}>();
+const props = defineProps<{ repo: Repo }>();
 
 const commitLink = computed(() => buildCommitUrl(props.repo));
-
-function commitDisplay(commit?: string | null) {
-  if (!commit) return 'pending';
-  return commit.slice(0, 7);
-}
-
-function formatTimestamp(value?: string | null) {
-  if (!value) return 'Awaiting first poll';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
-
-function formatRelativeTime(value?: string | null) {
-  if (!value) return 'Awaiting first poll';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const now = new Date();
-  const diff = date.getTime() - now.getTime();
-  const absDiff = Math.abs(diff);
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  const week = 7 * day;
-  const month = 30 * day;
-  const year = 365 * day;
-
-  const thresholds = [
-    { limit: year, unit: 'year', value: year },
-    { limit: month, unit: 'month', value: month },
-    { limit: week, unit: 'week', value: week },
-    { limit: day, unit: 'day', value: day },
-    { limit: hour, unit: 'hour', value: hour },
-    { limit: minute, unit: 'minute', value: minute },
-  ] as const;
-
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-  for (const threshold of thresholds) {
-    if (absDiff >= threshold.limit) {
-      const amount = Math.round(diff / threshold.value);
-      return rtf.format(amount, threshold.unit);
-    }
-  }
-
-  const seconds = Math.round(diff / 1000);
-  if (Math.abs(seconds) < 1) {
-    return 'just now';
-  }
-  return rtf.format(seconds, 'second');
-}
-function buildCommitUrl(repo: Repo) {
-  if (!repo.last_commit) {
-    return null;
-  }
-  const repoUrl = (repo.repo_url || '').trim();
-  if (!repoUrl) {
-    return null;
-  }
-  let base = repoUrl.replace(/\.git$/i, '');
-  if (base.startsWith('http://') || base.startsWith('https://')) {
-    return `${base}/commit/${repo.last_commit}`;
-  }
-  if (base.startsWith('git@')) {
-    const match = base.match(/^git@([^:]+):(.+)$/);
-    if (match) {
-      const host = match[1];
-      const path = match[2].replace(/\.git$/i, '');
-      return `https://${host}/${path}/commit/${repo.last_commit}`;
-    }
-  }
-  if (base.startsWith('ssh://')) {
-    try {
-      const url = new URL(base);
-      const host = url.hostname;
-      const path = url.pathname.replace(/\.git$/i, '').replace(/^\/+/, '');
-      return `https://${host}/${path}/commit/${repo.last_commit}`;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
+const commitHash = computed(() => formatCommitHash(props.repo.last_commit));
 </script>
 
 <style scoped>

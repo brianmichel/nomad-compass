@@ -31,7 +31,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import RepoJob from './RepoJob.vue';
-import type { RepoJob as RepoJobType } from '../composables/useCompassStore';
+import type { RepoJob as RepoJobType } from '@/types';
 
 const props = defineProps<{
   jobs: RepoJobType[];

@@ -11,9 +11,9 @@
 </template>
 
 <script setup lang="ts">
-import RepoList from '../components/RepoList.vue';
-import type { Repo } from '../composables/useCompassStore';
-import { useCompassStore } from '../composables/useCompassStore';
+import RepoList from '@/components/RepoList.vue';
+import type { Repo } from '@/types';
+import { useCompassStore } from '@/composables/useCompassStore';
 
 const {
   repos,
