@@ -11,10 +11,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import CredentialForm from '../components/CredentialForm.vue';
-import CredentialList from '../components/CredentialList.vue';
-import type { Credential } from '../composables/useCompassStore';
-import { useCompassStore } from '../composables/useCompassStore';
+import CredentialForm from '@/components/CredentialForm.vue';
+import CredentialList from '@/components/CredentialList.vue';
+import type { Credential } from '@/types';
+import { useCompassStore } from '@/composables/useCompassStore';
 
 const formRef = ref<InstanceType<typeof CredentialForm> | null>(null);
 

@@ -45,11 +45,11 @@
 
 <script setup lang="ts">
 import { reactive } from 'vue';
-import type { Credential } from '../composables/useCompassStore';
+import type { Credential, RepoPayload } from '@/types';
 
 const props = defineProps<{ credentials: Credential[]; saving: boolean }>();
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; repo_url: string; branch: string; job_path: string; credential_id?: number }): void;
+  (e: 'submit', payload: RepoPayload): void;
 }>();
 
 const form = reactive({

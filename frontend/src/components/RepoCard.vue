@@ -52,9 +52,7 @@
         </div>
         <div class="info-cell">
           <span class="info-label">Credential</span>
-          <span class="info-value">
-            {{ repo.credential_id ? 'Managed secret' : 'Public' }}
-          </span>
+          <span class="info-value">{{ credentialLabel }}</span>
         </div>
         <div class="info-cell">
           <span class="info-label">Last Checked</span>
@@ -62,10 +60,10 @@
             <template v-if="repo.last_polled_at">
               <time
                 class="commit-polled"
-                :datetime="repo.last_polled_at"
-                :title="formatTimestamp(repo.last_polled_at)"
+                :datetime="lastPolledDatetime"
+                :title="lastPolledAbsolute"
               >
-                {{ formatRelativeTime(repo.last_polled_at) }}
+                {{ lastPolledRelative }}
               </time>
             </template>
             <span v-else class="commit-polled pending">Awaiting first poll</span>
@@ -82,7 +80,8 @@
 import { computed } from 'vue';
 import RepoJobList from './RepoJobList.vue';
 import RepoPollingInfo from './RepoPollingInfo.vue';
-import type { Repo } from '../composables/useCompassStore';
+import type { Repo } from '@/types';
+import { formatRelativeTime, formatTimestamp } from '@/utils/date';
 
 const props = defineProps<{
   repo: Repo;
@@ -97,56 +96,10 @@ const emit = defineEmits<{
 
 const isSyncing = computed(() => props.syncingRepoId === props.repo.id);
 const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
-
-function formatTimestamp(value?: string | null) {
-  if (!value) return 'Awaiting first poll';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
-
-function formatRelativeTime(value?: string | null) {
-  if (!value) return 'Awaiting first poll';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const now = new Date();
-  const diff = date.getTime() - now.getTime();
-  const absDiff = Math.abs(diff);
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  const week = 7 * day;
-  const month = 30 * day;
-  const year = 365 * day;
-
-  const thresholds = [
-    { limit: year, unit: 'year', value: year },
-    { limit: month, unit: 'month', value: month },
-    { limit: week, unit: 'week', value: week },
-    { limit: day, unit: 'day', value: day },
-    { limit: hour, unit: 'hour', value: hour },
-    { limit: minute, unit: 'minute', value: minute },
-  ] as const;
-
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-  for (const threshold of thresholds) {
-    if (absDiff >= threshold.limit) {
-      const amount = Math.round(diff / threshold.value);
-      return rtf.format(amount, threshold.unit);
-    }
-  }
-
-  const seconds = Math.round(diff / 1000);
-  if (Math.abs(seconds) < 1) {
-    return 'just now';
-  }
-  return rtf.format(seconds, 'second');
-}
+const credentialLabel = computed(() => (props.repo.credential_id ? 'Managed secret' : 'Public'));
+const lastPolledRelative = computed(() => formatRelativeTime(props.repo.last_polled_at));
+const lastPolledAbsolute = computed(() => formatTimestamp(props.repo.last_polled_at));
+const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined);
 </script>
 
 <style scoped>

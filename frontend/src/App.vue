@@ -29,12 +29,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch, onBeforeUnmount } from 'vue';
-import Topbar from './components/Topbar.vue';
-import ToastMessage from './components/ToastMessage.vue';
-import RepoForm from './components/RepoForm.vue';
-import { useCompassStore } from './composables/useCompassStore';
-import type { RepoPayload } from './composables/useCompassStore';
+import { onMounted, ref } from 'vue';
+import Topbar from '@/components/Topbar.vue';
+import ToastMessage from '@/components/ToastMessage.vue';
+import RepoForm from '@/components/RepoForm.vue';
+import { useCompassStore } from '@/composables/useCompassStore';
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock';
+import type { RepoPayload } from '@/types';
 
 const {
   refreshAll,
@@ -49,19 +50,10 @@ const {
 const showRepoModal = ref(false);
 const repoFormRef = ref<InstanceType<typeof RepoForm> | null>(null);
 
+useBodyScrollLock(showRepoModal);
+
 onMounted(() => {
   refreshAll();
-});
-
-watch(showRepoModal, (value) => {
-  if (typeof document === 'undefined') return;
-  document.body.style.overflow = value ? 'hidden' : '';
-});
-
-onBeforeUnmount(() => {
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = '';
-  }
 });
 
 function openRepoModal() {
@@ -127,18 +119,18 @@ function closeRepoModal() {
   top: 0.75rem;
   right: 0.75rem;
   z-index: 1;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.75);
-  color: rgba(226, 232, 240, 0.85);
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-strong);
+  color: var(--color-text-secondary);
+  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
 
 .close-button:hover,
 .close-button:focus-visible {
-  border-color: rgba(148, 163, 184, 0.55);
+  border-color: var(--color-border);
   background: rgba(30, 41, 59, 0.85);
-  color: rgba(226, 232, 240, 0.95);
+  color: var(--color-text-primary);
 }
 
 .fade-enter-active,

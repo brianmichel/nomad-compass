@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Credential } from '../composables/useCompassStore';
+import type { Credential } from '@/types';
 
 defineProps<{
   credentials: Credential[];

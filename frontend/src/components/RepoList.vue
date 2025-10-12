@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import RepoCard from './RepoCard.vue';
-import type { Repo } from '../composables/useCompassStore';
+import type { Repo } from '@/types';
 
 defineProps<{
   repos: Repo[];

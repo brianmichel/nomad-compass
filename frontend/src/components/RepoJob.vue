@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import type { RepoJob, AllocationStatus } from '../composables/useCompassStore';
+import type { RepoJob, AllocationStatus } from '@/types';
 
 defineProps<{
   job: RepoJob;
