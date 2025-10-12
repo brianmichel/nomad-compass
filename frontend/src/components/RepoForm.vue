@@ -84,11 +84,11 @@ defineExpose({ reset, form });
 <style scoped>
 .repo-form {
   width: 100%;
-  padding: 1.85rem 2rem;
-  background: rgba(15, 23, 42, 0.88);
-  border-radius: 24px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  box-shadow: 0 35px 90px -45px rgba(2, 6, 23, 0.85);
+  padding: clamp(1.75rem, 3vw, 2.25rem);
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-elevated);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -96,61 +96,22 @@ defineExpose({ reset, form });
 
 .repo-form__header h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.32rem;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--color-text-primary);
 }
 
 .repo-form__header p {
-  margin: 0.35rem 0 0 0;
-  color: rgba(148, 163, 184, 0.85);
-  font-size: 0.9rem;
+  margin: 0.4rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+  max-width: 32rem;
 }
 
 .repo-form__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem 1.25rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: #e2e8f0;
-}
-
-.field span {
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.8);
-}
-
-.field small {
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: rgba(148, 163, 184, 0.75);
-}
-
-.field input,
-.field select {
-  width: 100%;
-  padding: 0.7rem 0.85rem;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.65);
-  color: #e2e8f0;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.field input:focus,
-.field select:focus {
-  outline: none;
-  border-color: rgba(99, 102, 241, 0.6);
-  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
 }
 
 .span-2 {
@@ -170,5 +131,6 @@ defineExpose({ reset, form });
 .repo-form__actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 0.5rem;
 }
 </style>

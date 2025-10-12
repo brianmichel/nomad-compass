@@ -146,33 +146,34 @@ watch(
   inset: auto 0 0;
   height: 72px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.9) 100%);
+  background: linear-gradient(180deg, rgba(246, 248, 251, 0) 0%, rgba(246, 248, 251, 0.95) 100%);
 }
 
 .job-empty {
   margin-top: 1rem;
   font-size: 0.9rem;
-  color: rgba(148, 163, 184, 0.85);
+  color: var(--color-text-subtle);
 }
 
 .jobs-toggle {
   margin-top: 0.75rem;
   align-self: flex-start;
-  background: transparent;
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  color: rgba(191, 219, 254, 0.9);
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  padding: 0.4rem 0.95rem;
+  border-radius: var(--radius-pill);
   font-size: 0.82rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .jobs-toggle:hover,
 .jobs-toggle:focus-visible {
-  border-color: rgba(96, 165, 250, 0.6);
-  color: rgba(224, 242, 254, 0.95);
-  background: rgba(30, 64, 175, 0.25);
+  border-color: var(--color-accent);
+  color: var(--color-accent-hover);
+  background: var(--color-accent-muted);
+  box-shadow: 0 0 0 3px rgba(29, 111, 228, 0.12);
 }
 </style>

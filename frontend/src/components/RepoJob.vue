@@ -191,12 +191,18 @@ function capitalize(value: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem;
-  border-radius: 0.9rem;
-  background: rgba(30, 41, 59, 0.55);
-  border: 1px solid rgba(51, 65, 85, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--color-border);
   gap: 1rem;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast);
+}
+
+.job-row:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-1px);
 }
 
 .job-info {
@@ -208,116 +214,117 @@ function capitalize(value: string) {
 .job-heading {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .job-name {
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--color-text-primary);
 }
 
 .job-allocations {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   padding: 0.15rem 0.3rem;
   text-decoration: none;
 }
 
 .allocation-square {
-  width: 0.9rem;
-  height: 0.9rem;
-  border-radius: 0.2rem;
-  background: #3e4741;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 0.22rem;
+  background: var(--color-border);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  transition: opacity var(--transition-fast);
 }
 
 .allocation-square:hover {
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .allocation-square.healthy {
-  background: #22c55e;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: var(--color-success);
+  border-color: var(--color-success);
 }
 
 .allocation-square.completed {
-  background: rgba(34, 197, 94, 0.31);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: var(--status-healthy-bg);
+  border-color: var(--color-success-border);
 }
 
 .allocation-square.pending {
-  background: #8824fb;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: var(--status-pending-border);
+  border-color: var(--color-accent);
 }
 
 .allocation-square.danger {
-  background: #f87171;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .job-batch {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #fbbf24;
+  color: var(--status-warning-text);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   text-decoration: none;
-  padding: 0.1rem 0.45rem;
-  border-radius: 0.5rem;
-  background: rgba(251, 191, 36, 0.12);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
 }
 
 .job-batch:hover {
-  background: rgba(251, 191, 36, 0.22);
-  color: #fef3c7;
+  background: rgba(246, 186, 108, 0.25);
+  color: var(--status-warning-text);
 }
 
 .job-path {
   font-size: 0.8rem;
-  color: rgba(148, 163, 184, 0.85);
+  color: var(--color-text-subtle);
 }
 
 .job-status-badge {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
+  font-size: 0.78rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: var(--radius-pill);
   text-transform: none;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(148, 163, 184, 0.2);
-  color: rgba(226, 232, 240, 0.85);
+  border: 1px solid var(--status-unknown-border);
+  background: var(--status-unknown-bg);
+  color: var(--status-unknown-text);
   white-space: nowrap;
 }
 
 .job-status-badge.healthy {
-  background: rgba(34, 197, 94, 0.2);
-  border-color: rgba(34, 197, 94, 0.4);
-  color: #bbf7d0;
+  background: var(--status-healthy-bg);
+  border-color: var(--status-healthy-border);
+  color: var(--status-healthy-text);
 }
 
 .job-status-badge.pending {
-  background: rgba(251, 191, 36, 0.18);
-  border-color: rgba(251, 191, 36, 0.4);
-  color: #fef3c7;
+  background: var(--status-pending-bg);
+  border-color: var(--status-pending-border);
+  color: var(--status-pending-text);
 }
 
 .job-status-badge.warning {
-  background: rgba(96, 165, 250, 0.2);
-  border-color: rgba(96, 165, 250, 0.45);
-  color: #bfdbfe;
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+  color: var(--status-warning-text);
 }
 
 .job-status-badge.danger {
-  background: rgba(248, 113, 113, 0.2);
-  border-color: rgba(248, 113, 113, 0.4);
-  color: #fecaca;
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .job-status-badge.unknown {
-  background: rgba(100, 116, 139, 0.25);
-  border-color: rgba(100, 116, 139, 0.35);
-  color: rgba(226, 232, 240, 0.8);
+  background: var(--status-unknown-bg);
+  border-color: var(--status-unknown-border);
+  color: var(--status-unknown-text);
 }
 
 .job-row.compact {

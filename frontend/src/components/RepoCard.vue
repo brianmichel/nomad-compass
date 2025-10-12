@@ -103,13 +103,38 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
 </script>
 
 <style scoped>
+.repo-card {
+  list-style: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: clamp(1.4rem, 3vw, 1.85rem);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast);
+}
+
+.repo-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
+}
+
+.repo-card.active {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(29, 111, 228, 0.18), var(--shadow-card);
+}
+
 .repo-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
   padding-bottom: 0.6rem;
-  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .repo-title {
@@ -123,19 +148,19 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--color-text-primary);
 }
 
 .repo-branch-chip {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(236, 72, 153, 0.12);
-  border: 1px solid rgba(236, 72, 153, 0.25);
-  color: #fbcfe8;
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-muted);
+  border: 1px solid rgba(29, 111, 228, 0.35);
+  color: var(--color-accent);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -152,39 +177,31 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
 }
 
 .repo-info {
-  margin: 0 0 0.75rem;
-  border: 1px solid rgba(71, 85, 105, 0.35);
-  border-radius: 12px;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--color-surface-muted);
 }
 
 .repo-info-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr); /* exactly 2 columns */
-  grid-template-rows: repeat(2, 1fr);   /* exactly 2 rows */
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
   min-width: 0;
-  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
+  border-bottom: 1px solid var(--color-border);
 }
 
-/* Base: remove item borders */
 .repo-info-grid > * {
-  border: none;
-  padding: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
-/* Add separators between cells without doubling on the right/bottom */
-.repo-info-grid > * {
-  border-right: 1px solid rgba(71, 85, 105, 0.35);
-  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
-}
-
-/* Remove right border on items in the last column */
 .repo-info-grid > *:nth-child(2n) {
   border-right: none;
 }
 
-/* Remove bottom border on items in the last row (items 3 and 4 for a 2x2) */
 .repo-info-grid > *:nth-child(n+3) {
   border-bottom: none;
 }
@@ -193,10 +210,7 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  padding: 0.75rem 0.85rem;
   min-width: 0;
-  border-right: 1px solid rgba(71, 85, 105, 0.35);
-  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
 }
 
 .info-cell:last-child {
@@ -204,30 +218,44 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
 }
 
 .info-label {
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-family: monospace;
-  color: rgba(148, 163, 184, 0.7);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--color-text-subtle);
 }
 
 .info-value {
   font-size: 0.85rem;
-  color: rgba(226, 232, 240, 0.88);
+  color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .info-value.link {
-  color: rgba(96, 165, 250, 0.9);
+  color: var(--color-accent);
   text-decoration: none;
-  transition: color 0.15s ease;
+  transition: color var(--transition-fast);
 }
 
 .info-value.link:hover,
 .info-value.link:focus-visible {
-  color: rgba(96, 165, 250, 1);
+  color: var(--color-accent-hover);
+}
+
+.commit-polled {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.commit-polled.pending {
+  color: var(--status-warning-text);
+}
+
+.repo-info-commit {
+  border-top: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 @media (max-width: 768px) {
@@ -245,13 +273,8 @@ const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined
     grid-template-columns: 1fr;
   }
 
-  .info-cell {
+  .repo-info-grid > * {
     border-right: none;
-    border-bottom: 1px solid rgba(71, 85, 105, 0.35);
-  }
-
-  .info-cell:last-child {
-    border-bottom: none;
   }
 }
 </style>
