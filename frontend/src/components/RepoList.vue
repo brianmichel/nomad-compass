@@ -5,7 +5,7 @@
         <h2>Repositories</h2>
         <p>Git sources monitored for Nomad job definitions.</p>
       </div>
-      <button class="primary add-repo-header" type="button" @click="$emit('add-repo')">
+      <button class="primary add-repo-header add-button" type="button" @click="$emit('add-repo')">
         <span>Add</span>
       </button>
     </header>
@@ -81,6 +81,11 @@ const hasRepos = computed(() => props.repos.length > 0);
   padding: 0.45rem 1rem;
   border-radius: var(--radius-md);
   box-shadow: none;
+}
+
+.add-button {
+  font-weight: 400;
+  line-height: 1;
 }
 
 .repo-table__header h2 {
