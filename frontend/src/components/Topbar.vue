@@ -1,87 +1,111 @@
 <template>
   <nav class="topbar">
-    <div class="brand">
-      <div class="brand-icon">🧭</div>
-      <div class="brand-copy">
-        <span class="brand-title">Compass</span>
-        <span class="brand-subtitle">GitOps Reconciler</span>
+    <div class="topbar__inner">
+      <div class="brand">
+        <div class="brand-copy">
+          <span class="brand-title">Compass</span>
+        </div>
       </div>
-    </div>
-    <div class="topbar-nav">
-      <RouterLink to="/" class="nav-link" active-class="active">Dashboard</RouterLink>
-      <RouterLink to="/settings" class="nav-link" active-class="active">Settings</RouterLink>
-    </div>
-    <div class="topbar-actions">
-      <span
-        class="status-badge"
-        :class="{ offline: !isConnected }"
-        :title="statusTooltip"
-      >
-        <span class="pulse" :class="{ offline: !isConnected }"></span>
-        {{ statusLabel }}
-      </span>
-      <button class="primary add-repo-btn" type="button" @click="$emit('add-repo')">
-        <span class="button-icon">＋</span>
-        <span>Add repo</span>
-      </button>
+      <div class="topbar-nav">
+        <RouterLink to="/" class="nav-link" active-class="active">Dashboard</RouterLink>
+        <RouterLink to="/settings" class="nav-link" active-class="active">Settings</RouterLink>
+      </div>
     </div>
   </nav>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { CompassStatus } from '@/types';
-
-const props = defineProps<{
-  status: CompassStatus | null;
-}>();
-
-defineEmits<{
-  (e: 'add-repo'): void;
-}>();
-
-const isConnected = computed(() => props.status?.nomad_connected ?? false);
-
-const statusLabel = computed(() => (isConnected.value ? 'Nomad Connected' : 'Nomad Offline'));
-
-const statusTooltip = computed(() => {
-  if (props.status?.nomad_message) {
-    return props.status.nomad_message;
-  }
-  return isConnected.value ? 'Connected to Nomad' : 'Unable to reach Nomad';
-});
 </script>
 
 <style scoped>
+.topbar {
+  width: 100%;
+  min-height: 3.25rem;
+  background: var(--color-brand);
+  color: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+}
+
+.topbar__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.4rem clamp(1rem, 3vw, 2rem);
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  width: 100%;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-shrink: 0;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.brand-title {
+  font-weight: 600;
+  font-size: 1.28rem;
+  letter-spacing: 0.01em;
+}
+
 .topbar-nav {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  margin-left: auto;
 }
 
 .nav-link {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  color: rgba(226, 232, 240, 0.75);
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  color: rgba(255, 255, 255, 0.82);
+  padding: 0.24rem 0.5rem;
+  border-radius: var(--radius-pill);
+  transition: color var(--transition-base), background var(--transition-base);
 }
 
 .nav-link:hover {
-  color: rgba(226, 232, 240, 0.95);
-  background: rgba(59, 130, 246, 0.18);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .nav-link.active {
-  color: #c7d2fe;
-  background: rgba(99, 102, 241, 0.25);
-  border: 1px solid rgba(129, 140, 248, 0.35);
+  color: #ffffff;
+  background: rgba(15, 108, 67, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
-.add-repo-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
+@media (max-width: 960px) {
+  .topbar__inner {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .topbar-nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+}
+
+@media (max-width: 640px) {
+  .topbar__inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-nav {
+    justify-content: flex-start;
+  }
 }
 </style>

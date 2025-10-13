@@ -1,9 +1,16 @@
 <template>
   <div class="app-shell">
-    <Topbar :status="status" @add-repo="openRepoModal" />
-    <div class="content-frame">
-      <router-view />
-    </div>
+    <Topbar />
+    <main class="content-frame">
+      <div class="content-container">
+        <router-view v-slot="{ Component }">
+          <component :is="Component" @add-repo="openRepoModal" />
+        </router-view>
+      </div>
+    </main>
+    <footer class="app-footer" v-if="status">
+      <StatusBadge :connected="status.nomad_connected" :message="status.nomad_message" variant="footer" />
+    </footer>
     <ToastMessage v-if="error" :message="error" @dismiss="clearError" />
     <transition name="fade">
       <div v-if="showRepoModal" class="modal-backdrop" @click.self="closeRepoModal">
@@ -33,6 +40,7 @@ import { onMounted, ref } from 'vue';
 import Topbar from '@/components/Topbar.vue';
 import ToastMessage from '@/components/ToastMessage.vue';
 import RepoForm from '@/components/RepoForm.vue';
+import StatusBadge from '@/components/StatusBadge.vue';
 import { useCompassStore } from '@/composables/useCompassStore';
 import { useBodyScrollLock } from '@/composables/useBodyScrollLock';
 import type { RepoPayload } from '@/types';
@@ -79,30 +87,44 @@ function closeRepoModal() {
 <style scoped>
 .app-shell {
   min-height: 100vh;
-  padding: 2.5rem clamp(1rem, 4vw, 4rem);
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
+  background: var(--color-bg);
 }
 
 .content-frame {
   flex: 1;
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+
+.content-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.2rem, 2.5vw, 2rem);
+}
+
+.app-footer {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  margin-top: auto;
 }
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: clamp(2rem, 4vw, 4rem);
   overflow-y: auto;
   z-index: 20;
-  animation: fadeIn 0.2s ease;
 }
 
 .modal-card {
@@ -110,26 +132,27 @@ function closeRepoModal() {
   width: min(720px, 100%);
   display: flex;
   justify-content: center;
+  padding-top: 2.75rem;
 }
 
 .close-button {
-  font-size: 0.85rem;
-  padding: 0.35rem 0.95rem;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.95rem;
   position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
+  top: 1rem;
+  right: 1rem;
   z-index: 1;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.92);
   color: var(--color-text-secondary);
-  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .close-button:hover,
 .close-button:focus-visible {
-  border-color: var(--color-border);
-  background: rgba(30, 41, 59, 0.85);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
   color: var(--color-text-primary);
 }
 
@@ -141,16 +164,5 @@ function closeRepoModal() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 </style>

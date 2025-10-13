@@ -6,6 +6,7 @@
       :deleting-repo-id="deletingRepoId"
       @reconcile="handleReconcile"
       @delete="handleDeleteRepo"
+      @add-repo="emit('add-repo')"
     />
   </div>
 </template>
@@ -14,6 +15,10 @@
 import RepoList from '@/components/RepoList.vue';
 import type { Repo } from '@/types';
 import { useCompassStore } from '@/composables/useCompassStore';
+
+const emit = defineEmits<{
+  (e: 'add-repo'): void;
+}>();
 
 const {
   repos,

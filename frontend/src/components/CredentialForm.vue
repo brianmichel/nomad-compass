@@ -1,5 +1,5 @@
 <template>
-  <section class="panel glass">
+  <section class="panel">
     <header class="panel-header">
       <div>
         <h2>Credential vault</h2>

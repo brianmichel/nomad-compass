@@ -8,12 +8,21 @@
     }"
   >
     <template v-if="jobs.length">
-      <RepoJob
-        v-for="job in jobs"
-        :key="job.path"
-        :job="job"
-        :compact="isCompact"
-      />
+      <header class="jobs-header">
+        <div class="jobs-heading">
+          <span class="jobs-title">Jobs</span>
+          <span class="jobs-subtitle">Tracked Nomad allocations</span>
+        </div>
+        <span class="jobs-count">{{ jobs.length }} total</span>
+      </header>
+      <div class="jobs-stack">
+        <RepoJob
+          v-for="job in jobs"
+          :key="job.path"
+          :job="job"
+          :compact="isCompact"
+        />
+      </div>
     </template>
     <p v-else class="job-empty">No Nomad jobs registered yet.</p>
   </div>
@@ -113,66 +122,94 @@ watch(
 </script>
 
 <style scoped>
+
 .repo-jobs {
-  margin-top: 1rem;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  position: relative;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
-.repo-jobs.compact {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
+.jobs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  gap: 1rem;
 }
 
-.repo-jobs.compact .job-empty {
-  grid-column: 1 / -1;
+.jobs-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.jobs-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.jobs-subtitle {
+  font-size: 0.82rem;
+  color: var(--color-text-subtle);
+}
+
+.jobs-count {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.jobs-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .repo-jobs.collapsed {
-  max-height: 360px;
-  overflow: hidden;
-}
-
-.repo-jobs.compact.collapsed {
   max-height: 340px;
+  overflow: hidden;
 }
 
 .repo-jobs.collapsed::after {
   content: "";
   position: absolute;
   inset: auto 0 0;
-  height: 72px;
+  height: 64px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.9) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(242, 245, 250, 0.95) 100%);
 }
 
+
 .job-empty {
-  margin-top: 1rem;
-  font-size: 0.9rem;
-  color: rgba(148, 163, 184, 0.85);
+  margin: 0.25rem 0;
+  font-size: 0.88rem;
+  color: var(--color-text-subtle);
+  text-align: center;
 }
 
 .jobs-toggle {
-  margin-top: 0.75rem;
+  margin-top: 0.35rem;
   align-self: flex-start;
   background: transparent;
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  color: rgba(191, 219, 254, 0.9);
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
 }
 
 .jobs-toggle:hover,
 .jobs-toggle:focus-visible {
-  border-color: rgba(96, 165, 250, 0.6);
-  color: rgba(224, 242, 254, 0.95);
-  background: rgba(30, 64, 175, 0.25);
+  color: var(--color-accent-hover);
+  text-decoration: underline;
 }
 </style>

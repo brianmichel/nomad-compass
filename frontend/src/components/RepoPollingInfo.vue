@@ -45,10 +45,11 @@ const commitHash = computed(() => formatCommitHash(props.repo.last_commit));
 <style scoped>
 .repo-status {
   margin: 0;
-  padding: 0.75rem 0.85rem;
+  padding: 0 0 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.45rem;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .commit-row {
@@ -62,16 +63,16 @@ const commitHash = computed(() => formatCommitHash(props.repo.last_commit));
 .commit-text {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   flex: 1;
   min-width: 200px;
 }
 
 .commit-message {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .commit-meta {
@@ -79,51 +80,43 @@ const commitHash = computed(() => formatCommitHash(props.repo.last_commit));
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
-  font-size: 0.8rem;
-  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.78rem;
+  color: var(--color-text-subtle);
 }
 
 .commit-hash {
-  font-family: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  background: rgba(30, 41, 59, 0.6);
-  border-radius: 6px;
-  padding: 0.15rem 0.45rem;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  color: rgba(226, 232, 240, 0.85);
+  font-family: var(--font-mono);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.18rem 0.5rem;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
   letter-spacing: 0.05em;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   text-decoration: none;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .commit-hash:hover,
 .commit-hash:focus-visible {
-  border-color: rgba(148, 163, 184, 0.5);
-  color: rgba(226, 232, 240, 0.95);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .author-name {
-  color: rgba(226, 232, 240, 0.85);
+  color: var(--color-text-secondary);
   font-weight: 500;
-}
-
-.commit-action {
-  color: rgba(148, 163, 184, 0.7);
-}
-
-.commit-polled {
-  color: rgba(148, 163, 184, 0.7);
-}
-
-.commit-polled.pending {
-  color: rgba(148, 163, 184, 0.6);
 }
 
 @media (max-width: 768px) {
   .repo-status {
-    padding: 0.75rem 0.8rem;
+    padding-bottom: 0.65rem;
   }
+}
+
+.repo-status:last-child {
+  border-bottom: none;
 }
 </style>
