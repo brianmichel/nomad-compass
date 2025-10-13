@@ -12,11 +12,8 @@
       <table>
         <thead>
           <tr>
-            <th scope="col" />
             <th scope="col">Name</th>
-            <th scope="col">Repository</th>
             <th scope="col">Branch</th>
-            <th scope="col">Credential</th>
             <th scope="col">Last Checked</th>
             <th scope="col">Status</th>
             <th scope="col" class="actions-col">Actions</th>
@@ -100,19 +97,17 @@ const emit = defineEmits<{
   width: 100%;
 }
 
-.repo-table__surface thead th:first-child,
-.repo-table__surface tbody td:first-child {
-  width: 40px;
-  padding-left: 0.6rem;
-  padding-right: 0.3rem;
-}
-
-.repo-table__surface tbody tr:last-child td {
-  border-bottom: none;
+thead th {
+  text-align: left;
 }
 
 .actions-col {
   text-align: right;
+}
+
+.actions-col,
+.repo-table__surface tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .repo-empty {
