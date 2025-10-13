@@ -40,7 +40,7 @@
         :disabled="isSyncing"
       >
         <span v-if="isSyncing" class="loader"></span>
-        <span v-else>Sync now</span>
+        <span v-else>Sync</span>
       </button>
       <button
         class="ghost danger small"
