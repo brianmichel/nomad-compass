@@ -25,41 +25,47 @@
   --color-accent-hover: #0f55ab;
   --color-accent-muted: #e4edfb;
 
-  --color-success: #127749;
-  --color-success-bg: #e4f2ea;
-  --color-success-border: #b5d8c3;
+  --color-success: #0f7a34;
+  --color-success-bg: #ecfdf3;
+  --color-success-border: #b7f0c9;
 
-  --color-warning: #b56300;
-  --color-warning-bg: #fdf2e3;
-  --color-warning-border: #f2c895;
+  --color-warning: #b45309;
+  --color-warning-bg: #fef3c7;
+  --color-warning-border: #fbd38d;
 
-  --color-info: #176ad1;
-  --color-info-bg: #e4edfb;
-  --color-info-border: #b7cff7;
+  --color-info: #6f42c1;
+  --color-info-bg: #f3edff;
+  --color-info-border: #d7c7ff;
 
-  --color-danger: #d92d20;
-  --color-danger-bg: #fce8e7;
-  --color-danger-border: #f4b2ac;
+  --color-danger: #c81e1e;
+  --color-danger-bg: #fee2e2;
+  --color-danger-border: #fca5a5;
 
-  --status-healthy-text: #166534;
-  --status-healthy-bg: #e4f2ea;
-  --status-healthy-border: #b5d8c3;
+  --status-healthy-text: #0f7a34;
+  --status-healthy-bg: #ecfdf3;
+  --status-healthy-border: #b7f0c9;
 
-  --status-pending-text: #155e75;
-  --status-pending-bg: #e1f2fd;
-  --status-pending-border: #97c8ea;
+  --status-pending-text: #6f42c1;
+  --status-pending-bg: #f3edff;
+  --status-pending-border: #d7c7ff;
 
-  --status-warning-text: #b56300;
-  --status-warning-bg: #fdf2e3;
-  --status-warning-border: #f2c895;
+  --status-warning-text: #b45309;
+  --status-warning-bg: #fef3c7;
+  --status-warning-border: #fbd38d;
 
-  --status-danger-text: #b42318;
-  --status-danger-bg: #fce8e7;
-  --status-danger-border: #f4b2ac;
+  --status-danger-text: #c81e1e;
+  --status-danger-bg: #fee2e2;
+  --status-danger-border: #fca5a5;
 
   --status-unknown-text: #4b5563;
-  --status-unknown-bg: #edf1f7;
+  --status-unknown-bg: #f1f5f9;
   --status-unknown-border: #cbd3df;
+
+  --jobs-bar-healthy: #00a57f;
+  --jobs-bar-warning: #f59e0b;
+  --jobs-bar-pending: #d4d4d8;
+  --jobs-bar-danger: #d8342a;
+  --jobs-bar-unknown: #cbd3df;
 
   --radius-xs: 2px;
   --radius-sm: 4px;
@@ -412,37 +418,37 @@ tbody tr:hover td {
   height: 8px;
   border-radius: 50%;
   background: var(--color-success);
-  box-shadow: 0 0 0 0 rgba(18, 119, 73, 0.3);
+  box-shadow: 0 0 0 0 rgba(15, 122, 52, 0.3);
   animation: pulse 2s infinite;
 }
 
 .pulse.offline {
   background: var(--color-danger);
-  box-shadow: 0 0 0 0 rgba(217, 45, 32, 0.35);
+  box-shadow: 0 0 0 0 rgba(200, 30, 30, 0.35);
   animation: pulse-offline 2s infinite;
 }
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(18, 119, 73, 0.35);
+    box-shadow: 0 0 0 0 rgba(15, 122, 52, 0.35);
   }
   70% {
-    box-shadow: 0 0 0 12px rgba(18, 119, 73, 0);
+    box-shadow: 0 0 0 12px rgba(15, 122, 52, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(18, 119, 73, 0);
+    box-shadow: 0 0 0 0 rgba(15, 122, 52, 0);
   }
 }
 
 @keyframes pulse-offline {
   0% {
-    box-shadow: 0 0 0 0 rgba(217, 45, 32, 0.35);
+    box-shadow: 0 0 0 0 rgba(200, 30, 30, 0.35);
   }
   70% {
-    box-shadow: 0 0 0 12px rgba(217, 45, 32, 0);
+    box-shadow: 0 0 0 12px rgba(200, 30, 30, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(217, 45, 32, 0);
+    box-shadow: 0 0 0 0 rgba(200, 30, 30, 0);
   }
 }
 

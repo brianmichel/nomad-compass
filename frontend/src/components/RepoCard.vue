@@ -14,7 +14,7 @@
     <td class="cell-name">
       <div class="name-block">
         <span class="repo-name">{{ repo.name }}</span>
-        <span class="job-path" :title="repo.job_path">{{ repo.job_path }}</span>
+        <!-- <span class="job-path" :title="repo.job_path">{{ repo.job_path }}</span> -->
       </div>
     </td>
     <td class="cell-source">
@@ -45,18 +45,7 @@
       <span v-else class="polled-pending">Awaiting poll</span>
     </td>
     <td class="cell-jobs">
-      <div v-if="jobSummaries.length" class="job-statuses">
-        <span
-          v-for="summary in jobSummaries"
-          :key="summary.key"
-          class="job-status-chip"
-          :class="summary.state"
-          :title="summary.tooltip"
-        >
-          {{ summary.label }}
-        </span>
-        <span v-if="jobOverflow > 0" class="job-status-chip more">+{{ jobOverflow }}</span>
-      </div>
+      <RepoJobsSummary v-if="repo.jobs && repo.jobs.length" :jobs="repo.jobs" />
       <span v-else class="job-status-empty">No jobs</span>
     </td>
     <td class="cell-actions">
@@ -93,10 +82,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import RepoJobList from './RepoJobList.vue';
+import RepoJobsSummary from './RepoJobsSummary.vue';
 import RepoPollingInfo from './RepoPollingInfo.vue';
 import type { Repo } from '@/types';
 import { formatRelativeTime, formatTimestamp } from '@/utils/date';
-import { getJobStatusClass, getJobStatusLabel, getJobStatusTooltip } from '@/utils/jobStatus';
 
 const props = defineProps<{
   repo: Repo;
@@ -118,17 +107,6 @@ const lastPolledRelative = computed(() => formatRelativeTime(props.repo.last_pol
 const lastPolledAbsolute = computed(() => formatTimestamp(props.repo.last_polled_at));
 const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined);
 
-const jobSummaries = computed(() =>
-  (props.repo.jobs ?? []).slice(0, 4).map((job) => ({
-    key: job.job_id || job.path,
-    label: getJobStatusLabel(job),
-    state: getJobStatusClass(job),
-    tooltip: getJobStatusTooltip(job),
-  })),
-);
-
-const jobOverflow = computed(() => Math.max(0, (props.repo.jobs?.length ?? 0) - jobSummaries.value.length));
-
 function toggleExpanded() {
   expanded.value = !expanded.value;
 }
@@ -136,7 +114,7 @@ function toggleExpanded() {
 
 <style scoped>
 .repo-row td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .repo-row.syncing td {
@@ -210,6 +188,7 @@ function toggleExpanded() {
   color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-link:hover,
@@ -250,56 +229,11 @@ function toggleExpanded() {
 }
 
 .cell-jobs {
-  min-width: 180px;
+  min-width: 220px;
 }
 
-.job-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.job-status-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.18rem 0.5rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--status-unknown-border);
-  background: var(--status-unknown-bg);
-  color: var(--status-unknown-text);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.job-status-chip.healthy {
-  border-color: var(--status-healthy-border);
-  background: var(--status-healthy-bg);
-  color: var(--status-healthy-text);
-}
-
-.job-status-chip.pending {
-  border-color: var(--status-pending-border);
-  background: var(--status-pending-bg);
-  color: var(--status-pending-text);
-}
-
-.job-status-chip.warning {
-  border-color: var(--status-warning-border);
-  background: var(--status-warning-bg);
-  color: var(--status-warning-text);
-}
-
-.job-status-chip.danger {
-  border-color: var(--status-danger-border);
-  background: var(--status-danger-bg);
-  color: var(--status-danger-text);
-}
-
-.job-status-chip.more {
-  border-style: dashed;
+:deep(.jobs-summary) {
+  min-width: 0;
 }
 
 .job-status-empty {
@@ -319,6 +253,7 @@ function toggleExpanded() {
   padding: 0;
   border-top: none;
   background: var(--color-surface-subtle);
+  vertical-align: top;
 }
 
 .repo-detail-row:hover td {

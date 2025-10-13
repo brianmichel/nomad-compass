@@ -46,7 +46,19 @@ export function getJobStatusClass(job: RepoJob): string {
   if (['healthy', 'running', 'successful', 'complete'].includes(normalized)) {
     return 'healthy';
   }
-  if (['deploying', 'pending', 'queued', 'evaluating', 'starting'].includes(normalized)) {
+  if ([
+    'deploying',
+    'pending',
+    'queued',
+    'evaluating',
+    'starting',
+    'recovering',
+    'restarting',
+    'initializing',
+    'rolling',
+    'updating',
+    'allocating',
+  ].includes(normalized)) {
     return 'pending';
   }
   if (['degraded'].includes(normalized)) {

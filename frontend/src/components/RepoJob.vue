@@ -206,11 +206,11 @@ function capitalize(value: string) {
 }
 
 .status-dot.pending {
-  background: var(--status-pending-border);
+  background: var(--status-pending-text);
 }
 
 .status-dot.warning {
-  background: var(--status-warning-border);
+  background: var(--status-warning-text);
 }
 
 .status-dot.danger {
@@ -375,8 +375,8 @@ function capitalize(value: string) {
 }
 
 .allocation-square.pending {
-  background: var(--status-pending-border);
-  border-color: var(--color-accent);
+  background: var(--status-pending-text);
+  border-color: var(--status-pending-text);
 }
 
 .allocation-square.danger {

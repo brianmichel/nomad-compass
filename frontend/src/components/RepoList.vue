@@ -18,7 +18,7 @@
             <th scope="col">Branch</th>
             <th scope="col">Credential</th>
             <th scope="col">Last Checked</th>
-            <th scope="col">Jobs</th>
+            <th scope="col">Status</th>
             <th scope="col" class="actions-col">Actions</th>
           </tr>
         </thead>
