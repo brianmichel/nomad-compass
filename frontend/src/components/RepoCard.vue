@@ -36,7 +36,7 @@
       <button
         class="ghost small"
         type="button"
-        @click="emit('reconcile', repo)"
+        @click.stop="emit('reconcile', repo)"
         :disabled="isSyncing"
       >
         <span v-if="isSyncing" class="loader"></span>
@@ -45,7 +45,7 @@
       <button
         class="ghost danger small"
         type="button"
-        @click="emit('delete', repo)"
+        @click.stop="emit('delete', repo)"
         :disabled="isDeleting"
       >
         <span v-if="isDeleting" class="loader"></span>

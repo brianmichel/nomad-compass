@@ -49,7 +49,7 @@ const props = defineProps<{
   deletingRepoId: number | null;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'reconcile', repo: Repo): void;
   (e: 'delete', repo: Repo): void;
   (e: 'add-repo'): void;
