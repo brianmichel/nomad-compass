@@ -17,6 +17,7 @@
         ></div>
       </div>
     </div>
+    <div class="jobs-summary__count">{{ jobsSummaryCount }}</div>
   </div>
   <div v-else class="jobs-summary jobs-summary-empty">
     <span>No jobs tracked</span>
@@ -55,6 +56,8 @@ const counts = computed(() =>
   }),
 );
 
+const jobsSummaryCount = computed(() => `${counts.value.healthy}/${props.jobs.length}`);
+
 const total = computed(() => props.jobs.length);
 
 const segments = computed(() =>
@@ -88,6 +91,13 @@ const tooltipText = computed(() => {
   font-size: 0.82rem;
   color: var(--color-text-subtle);
   text-align: center;
+}
+
+.jobs-summary__count {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  margin-left: 0.5rem;
+  text-align: right;
 }
 
 .bar-track {
