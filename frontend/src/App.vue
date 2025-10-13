@@ -1,11 +1,16 @@
 <template>
   <div class="app-shell">
-    <Topbar :status="status" @add-repo="openRepoModal" />
+    <Topbar />
     <main class="content-frame">
       <div class="content-container">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <component :is="Component" @add-repo="openRepoModal" />
+        </router-view>
       </div>
     </main>
+    <footer class="app-footer" v-if="status">
+      <StatusBadge :connected="status.nomad_connected" :message="status.nomad_message" variant="footer" />
+    </footer>
     <ToastMessage v-if="error" :message="error" @dismiss="clearError" />
     <transition name="fade">
       <div v-if="showRepoModal" class="modal-backdrop" @click.self="closeRepoModal">
@@ -35,6 +40,7 @@ import { onMounted, ref } from 'vue';
 import Topbar from '@/components/Topbar.vue';
 import ToastMessage from '@/components/ToastMessage.vue';
 import RepoForm from '@/components/RepoForm.vue';
+import StatusBadge from '@/components/StatusBadge.vue';
 import { useCompassStore } from '@/composables/useCompassStore';
 import { useBodyScrollLock } from '@/composables/useBodyScrollLock';
 import type { RepoPayload } from '@/types';
@@ -97,6 +103,15 @@ function closeRepoModal() {
   display: flex;
   flex-direction: column;
   gap: clamp(1.2rem, 2.5vw, 2rem);
+}
+
+.app-footer {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  margin-top: auto;
 }
 
 .modal-backdrop {

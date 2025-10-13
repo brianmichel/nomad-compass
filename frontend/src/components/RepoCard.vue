@@ -198,7 +198,6 @@ onBeforeUnmount(() => {
 .repo-row td {
   vertical-align: middle;
   padding: 0.75rem 0.9rem;
-  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .repo-row {

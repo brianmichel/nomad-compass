@@ -14,63 +14,32 @@
         <RouterLink to="/" class="nav-link" active-class="active">Dashboard</RouterLink>
         <RouterLink to="/settings" class="nav-link" active-class="active">Settings</RouterLink>
       </div>
-      <div class="topbar-actions">
-        <span
-          class="status-badge"
-          :class="{ offline: !isConnected }"
-          :title="statusTooltip"
-        >
-          <span class="pulse" :class="{ offline: !isConnected }"></span>
-          {{ statusLabel }}
-        </span>
-        <button class="primary add-repo-btn" type="button" @click="$emit('add-repo')">
-          <span class="button-icon">＋</span>
-          <span>Add repo</span>
-        </button>
-      </div>
     </div>
   </nav>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { CompassStatus } from '@/types';
-
-const props = defineProps<{
-  status: CompassStatus | null;
-}>();
-
-defineEmits<{
-  (e: 'add-repo'): void;
-}>();
-
-const isConnected = computed(() => props.status?.nomad_connected ?? false);
-
-const statusLabel = computed(() => (isConnected.value ? 'Nomad Connected' : 'Nomad Offline'));
-
-const statusTooltip = computed(() => {
-  if (props.status?.nomad_message) {
-    return props.status.nomad_message;
-  }
-  return isConnected.value ? 'Connected to Nomad' : 'Unable to reach Nomad';
-});
 </script>
 
 <style scoped>
 .topbar {
   width: 100%;
+  min-height: 3.25rem;
   background: var(--color-brand);
   color: #ffffff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
 }
 
 .topbar__inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0.75rem clamp(1rem, 3vw, 2.25rem);
+  padding: 0.4rem clamp(1rem, 3vw, 2rem);
   display: flex;
   align-items: center;
-  gap: 1.25rem;
+  gap: 1.1rem;
+  width: 100%;
 }
 
 .brand {
@@ -81,9 +50,9 @@ const statusTooltip = computed(() => {
 }
 
 .brand-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -122,52 +91,23 @@ const statusTooltip = computed(() => {
 }
 
 .nav-link {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-base);
+  color: rgba(255, 255, 255, 0.82);
+  padding: 0.24rem 0.5rem;
+  border-radius: var(--radius-pill);
+  transition: color var(--transition-base), background var(--transition-base);
 }
 
 .nav-link:hover {
   color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .nav-link.active {
   color: #ffffff;
-  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.85);
-}
-
-.add-repo-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-left: 1.25rem;
-  flex-shrink: 0;
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.status-badge.offline {
-  background: rgba(217, 45, 32, 0.2);
-  border-color: rgba(217, 45, 32, 0.45);
+  background: rgba(15, 108, 67, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 @media (max-width: 960px) {
@@ -182,9 +122,6 @@ const statusTooltip = computed(() => {
     justify-content: flex-start;
   }
 
-  .topbar-actions {
-    margin-left: 0;
-  }
 }
 
 @media (max-width: 640px) {
@@ -195,10 +132,6 @@ const statusTooltip = computed(() => {
 
   .topbar-nav {
     justify-content: flex-start;
-  }
-
-  .topbar-actions {
-    justify-content: space-between;
   }
 }
 </style>

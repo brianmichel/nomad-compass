@@ -5,10 +5,12 @@
         <h2>Repositories</h2>
         <p>Git sources monitored for Nomad job definitions.</p>
       </div>
-      <span class="repo-table__count">{{ repos.length }} total</span>
+      <button class="primary add-repo-header" type="button" @click="$emit('add-repo')">
+        <span>Add</span>
+      </button>
     </header>
 
-    <div v-if="repos.length" class="repo-table__surface">
+    <div v-if="hasRepos" class="repo-table__surface">
       <table>
         <thead>
           <tr>
@@ -37,19 +39,23 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import RepoCard from './RepoCard.vue';
 import type { Repo } from '@/types';
 
-defineProps<{
+const props = defineProps<{
   repos: Repo[];
   syncingRepoId: number | null;
   deletingRepoId: number | null;
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'reconcile', repo: Repo): void;
   (e: 'delete', repo: Repo): void;
+  (e: 'add-repo'): void;
 }>();
+
+const hasRepos = computed(() => props.repos.length > 0);
 </script>
 
 <style scoped>
@@ -66,6 +72,17 @@ const emit = defineEmits<{
   gap: 1rem;
 }
 
+.add-repo-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
 .repo-table__header h2 {
   margin: 0;
   font-size: 1.1rem;
@@ -79,16 +96,9 @@ const emit = defineEmits<{
   font-size: 0.92rem;
 }
 
-.repo-table__count {
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-subtle);
-}
-
 .repo-table__surface {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-md) var(--radius-md);
   overflow: hidden;
   background: var(--color-surface);
 }
@@ -99,6 +109,13 @@ const emit = defineEmits<{
 
 thead th {
   text-align: left;
+  color: var(--color-text-secondary);
+  background-color: #f1f2f3;
+  border-right: 1px solid var(--color-border);
+}
+
+thead th:last-child {
+  border-right: none;
 }
 
 .actions-col {
