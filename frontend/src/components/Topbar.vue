@@ -2,12 +2,8 @@
   <nav class="topbar">
     <div class="topbar__inner">
       <div class="brand">
-        <div class="brand-icon">
-          <span class="brand-glyph">🧭</span>
-        </div>
         <div class="brand-copy">
           <span class="brand-title">Compass</span>
-          <span class="brand-subtitle">Nomad GitOps</span>
         </div>
       </div>
       <div class="topbar-nav">
@@ -49,21 +45,6 @@
   flex-shrink: 0;
 }
 
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.brand-glyph {
-  font-size: 1.35rem;
-}
-
 .brand-copy {
   display: flex;
   flex-direction: column;
@@ -72,15 +53,8 @@
 
 .brand-title {
   font-weight: 600;
-  font-size: 1.08rem;
+  font-size: 1.28rem;
   letter-spacing: 0.01em;
-}
-
-.brand-subtitle {
-  font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.7);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
 }
 
 .topbar-nav {
