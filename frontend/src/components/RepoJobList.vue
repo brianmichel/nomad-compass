@@ -8,12 +8,21 @@
     }"
   >
     <template v-if="jobs.length">
-      <RepoJob
-        v-for="job in jobs"
-        :key="job.path"
-        :job="job"
-        :compact="isCompact"
-      />
+      <header class="jobs-header">
+        <div class="jobs-heading">
+          <span class="jobs-title">Jobs</span>
+          <span class="jobs-subtitle">Tracked Nomad allocations</span>
+        </div>
+        <span class="jobs-count">{{ jobs.length }} total</span>
+      </header>
+      <div class="jobs-stack">
+        <RepoJob
+          v-for="job in jobs"
+          :key="job.path"
+          :job="job"
+          :compact="isCompact"
+        />
+      </div>
     </template>
     <p v-else class="job-empty">No Nomad jobs registered yet.</p>
   </div>
@@ -113,15 +122,57 @@ watch(
 </script>
 
 <style scoped>
+
 .repo-jobs {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 0.4rem 1rem;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
+}
+
+.jobs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  gap: 1rem;
+}
+
+.jobs-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.jobs-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.jobs-subtitle {
+  font-size: 0.82rem;
+  color: var(--color-text-subtle);
+}
+
+.jobs-count {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.jobs-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .repo-jobs.collapsed {
@@ -135,22 +186,24 @@ watch(
   inset: auto 0 0;
   height: 64px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(238, 242, 247, 0.95) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(242, 245, 250, 0.95) 100%);
 }
 
+
 .job-empty {
-  margin: 0.5rem 0;
+  margin: 0.25rem 0;
   font-size: 0.88rem;
   color: var(--color-text-subtle);
+  text-align: center;
 }
 
 .jobs-toggle {
-  margin-top: 0.5rem;
+  margin-top: 0.35rem;
   align-self: flex-start;
   background: transparent;
   border: none;
   color: var(--color-accent);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   letter-spacing: 0.03em;
 }
 
