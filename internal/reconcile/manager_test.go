@@ -2,6 +2,9 @@ package reconcile
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/nomad/api"
@@ -74,9 +77,63 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 	}
 }
 
+func TestEnsureJobsRemovesDeletedJobs(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	if err := fileStore.Upsert(ctx, repoRecord.ID, ".nomad/removed.nomad.hcl", "old", "demo-job"); err != nil {
+		t.Fatalf("upsert repo file: %v", err)
+	}
+
+	fake := &fakeNomad{}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	snapshot := &repomodel.Snapshot{JobFiles: nil, CommitHash: "new"}
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if len(fake.deregistered) != 1 || fake.deregistered[0] != "demo-job" {
+		t.Fatalf("expected job deregistered, got %v", fake.deregistered)
+	}
+
+	files, err := fileStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list repo files: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected repo file tracking removed, got %v", files)
+	}
+}
+
 type fakeNomad struct {
 	lastJob        *api.Job
 	lastSubmission *api.JobSubmission
+	deregistered   []string
 }
 
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
@@ -89,6 +146,7 @@ func (f *fakeNomad) DeregisterJob(_ context.Context, jobID string, _ bool) error
 	if f.lastJob != nil && f.lastJob.ID != nil && *f.lastJob.ID == jobID {
 		f.lastJob = nil
 	}
+	f.deregistered = append(f.deregistered, jobID)
 	return nil
 }
 
