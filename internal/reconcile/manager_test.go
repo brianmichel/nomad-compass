@@ -12,12 +12,18 @@ import (
 )
 
 func TestParseJob(t *testing.T) {
-	job, err := parseJob(".nomad/job.nomad.hcl", []byte(`job "demo" { datacenters = ["dc1"] }`))
+	job, submission, err := parseJob(".nomad/job.nomad.hcl", []byte(`job "demo" { datacenters = ["dc1"] }`))
 	if err != nil {
 		t.Fatalf("parse job: %v", err)
 	}
 	if job == nil || job.Name == nil || *job.Name != "demo" {
 		t.Fatalf("unexpected job: %#v", job)
+	}
+	if submission == nil {
+		t.Fatal("expected submission metadata")
+	}
+	if submission.Source == "" || submission.Format != "hcl2" {
+		t.Fatalf("unexpected submission: %#v", submission)
 	}
 }
 
@@ -36,6 +42,15 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 
 	if fake.lastJob == nil {
 		t.Fatal("expected job to be registered")
+	}
+	if fake.lastSubmission == nil {
+		t.Fatal("expected submission to be captured")
+	}
+	if fake.lastSubmission.Format != "hcl2" {
+		t.Fatalf("unexpected submission format: %s", fake.lastSubmission.Format)
+	}
+	if fake.lastSubmission.Source != string(jobFile.Content) {
+		t.Fatalf("unexpected submission source: %q", fake.lastSubmission.Source)
 	}
 
 	if id == "" {
@@ -60,11 +75,13 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 }
 
 type fakeNomad struct {
-	lastJob *api.Job
+	lastJob        *api.Job
+	lastSubmission *api.JobSubmission
 }
 
-func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job) error {
+func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
 	f.lastJob = job
+	f.lastSubmission = submission
 	return nil
 }
 

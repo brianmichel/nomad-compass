@@ -14,7 +14,7 @@ import (
 
 // Client defines the operations Nomad Compass uses.
 type Client interface {
-	RegisterJob(ctx context.Context, job *api.Job) error
+	RegisterJob(ctx context.Context, job *api.Job, submission *api.JobSubmission) error
 	DeregisterJob(ctx context.Context, jobID string, purge bool) error
 	Ping(ctx context.Context) error
 	JobStatus(ctx context.Context, jobID string) (*JobStatus, error)
@@ -81,9 +81,13 @@ func New(cfg config.NomadConfig) (*API, error) {
 }
 
 // RegisterJob submits a Nomad job specification.
-func (a *API) RegisterJob(ctx context.Context, job *api.Job) error {
+func (a *API) RegisterJob(ctx context.Context, job *api.Job, submission *api.JobSubmission) error {
 	// The Nomad client does not expose context-aware calls for Register, so we rely on API client internals.
-	_, _, err := a.client.Jobs().Register(job, nil)
+	var opts *api.RegisterOptions
+	if submission != nil {
+		opts = &api.RegisterOptions{Submission: submission}
+	}
+	_, _, err := a.client.Jobs().RegisterOpts(job, opts, nil)
 	return err
 }
 

@@ -125,7 +125,7 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 }
 
 func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) (string, error) {
-	job, err := parseJob(jobFile.Path, jobFile.Content)
+	job, submission, err := parseJob(jobFile.Path, jobFile.Content)
 	if err != nil {
 		return "", err
 	}
@@ -137,7 +137,7 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
 	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
 
-	if err := m.nomad.RegisterJob(ctx, job); err != nil {
+	if err := m.nomad.RegisterJob(ctx, job, submission); err != nil {
 		return "", err
 	}
 	return jobID(job), nil
@@ -234,16 +234,20 @@ func jobID(job *api.Job) string {
 	return ""
 }
 
-func parseJob(path string, contents []byte) (*api.Job, error) {
+func parseJob(path string, contents []byte) (*api.Job, *api.JobSubmission, error) {
 	cfg := &jobspec2.ParseConfig{Body: contents, Path: path, Strict: true}
 	job, err := jobspec2.ParseWithConfig(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if job.Meta == nil {
 		job.Meta = map[string]string{}
 	}
-	return job, nil
+	submission := &api.JobSubmission{
+		Source: string(contents),
+		Format: "hcl2",
+	}
+	return job, submission, nil
 }
 
 func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository, snapshot *repo.Snapshot, commitChanged bool) error {
