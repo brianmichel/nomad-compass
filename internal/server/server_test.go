@@ -20,7 +20,7 @@ type fakeNomadClient struct {
 	calls      []string
 }
 
-func (f *fakeNomadClient) RegisterJob(ctx context.Context, job *api.Job) error {
+func (f *fakeNomadClient) RegisterJob(ctx context.Context, job *api.Job, submission *api.JobSubmission) error {
 	return nil
 }
 

@@ -20,7 +20,7 @@ internal/web/dist/*
 dist/
 *.db
 *.sqlite*
-
+.gocache/
 # IDE
 .vscode/
 .idea/
