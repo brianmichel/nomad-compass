@@ -228,6 +228,12 @@ func (s *RepoFileStore) DeleteByRepo(ctx context.Context, repoID int64) error {
 	return err
 }
 
+// Delete removes a tracked job file from a repository.
+func (s *RepoFileStore) Delete(ctx context.Context, repoID int64, path string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM repo_files WHERE repo_id = ? AND path = ?`, repoID, path)
+	return err
+}
+
 func jobIDOrNull(jobID string) interface{} {
 	if jobID == "" {
 		return nil

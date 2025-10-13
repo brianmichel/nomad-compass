@@ -8,7 +8,7 @@ go = "1.24.8"
 node = "20"
 
 [tasks.go-test]
-run = "go test ./..."
+run = "go test ./... -v"
 
 [tasks.frontend-install]
 dir = "frontend"

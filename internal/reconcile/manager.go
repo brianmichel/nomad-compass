@@ -261,7 +261,10 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 		fileIndex[file.Path] = file
 	}
 
+	seen := make(map[string]struct{}, len(snapshot.JobFiles))
+
 	for _, jobFile := range snapshot.JobFiles {
+		seen[jobFile.Path] = struct{}{}
 		existing, tracked := fileIndex[jobFile.Path]
 		needApply := commitChanged || !tracked
 
@@ -296,6 +299,27 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 		}
 		if err := m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash, jobID); err != nil {
 			return err
+		}
+	}
+
+	for path, file := range fileIndex {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		// Job file no longer exists in the repo. Unschedule and drop tracking metadata.
+		if file.JobID.Valid && file.JobID.String != "" {
+			if err := m.nomad.DeregisterJob(ctx, file.JobID.String, true); err != nil {
+				if m.logger != nil {
+					m.logger.Error("job deregister failed", "repo", repoRecord.Name, "job_id", file.JobID.String, "file", path, "error", err)
+				}
+				continue
+			}
+		}
+		if err := m.files.Delete(ctx, repoRecord.ID, path); err != nil {
+			return err
+		}
+		if m.logger != nil {
+			m.logger.Info("job removed", "repo", repoRecord.Name, "file", path, "job_id", file.JobID.String)
 		}
 	}
 
