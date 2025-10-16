@@ -12,6 +12,11 @@ const routes = [
     component: () => import('@/views/SettingsView.vue'),
   },
   {
+    path: '/repos/:id',
+    name: 'repo-detail',
+    component: () => import('@/views/RepoDetailView.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/',
   },

@@ -4,30 +4,44 @@
     class="repo-jobs"
     :class="{
       compact: isCompact,
-      collapsed: !expanded && hasOverflow,
+      collapsed: collapseEnabled && !expanded && hasOverflow,
+      'has-header': showHeader,
     }"
   >
     <template v-if="jobs.length">
-      <header class="jobs-header">
+      <header v-if="showHeader" class="jobs-header">
         <div class="jobs-heading">
           <span class="jobs-title">Jobs</span>
           <span class="jobs-subtitle">Tracked Nomad allocations</span>
         </div>
         <span class="jobs-count">{{ jobs.length }} total</span>
       </header>
-      <div class="jobs-stack">
-        <RepoJob
-          v-for="job in jobs"
-          :key="job.path"
-          :job="job"
-          :compact="isCompact"
-        />
+      <div class="jobs-table-wrapper">
+        <table class="jobs-table" :class="{ compact: isCompact }">
+          <thead>
+            <tr>
+              <th scope="col">Job</th>
+              <th scope="col">Status</th>
+              <th scope="col">Type</th>
+              <th scope="col">Namespace</th>
+              <th scope="col">Allocations</th>
+            </tr>
+          </thead>
+          <tbody>
+            <RepoJob
+              v-for="job in jobs"
+              :key="job.path"
+              :job="job"
+              :compact="isCompact"
+            />
+          </tbody>
+        </table>
       </div>
     </template>
     <p v-else class="job-empty">No Nomad jobs registered yet.</p>
   </div>
   <button
-    v-if="hasOverflow"
+    v-if="collapseEnabled && hasOverflow"
     type="button"
     class="jobs-toggle"
     @click="toggleExpanded"
@@ -38,13 +52,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
 import RepoJob from './RepoJob.vue';
 import type { RepoJob as RepoJobType } from '@/types';
 
 const props = defineProps<{
   jobs: RepoJobType[];
+  enableCollapse?: boolean;
+  showHeader?: boolean;
 }>();
+
+const collapseEnabled = computed(() => props.enableCollapse !== false);
+const showHeader = computed(() => props.showHeader !== false);
 
 const root = ref<HTMLElement | null>(null);
 const isCompact = ref(false);
@@ -56,7 +75,10 @@ const COMPACT_WIDTH = 620;
 const COLLAPSED_HEIGHT = 360;
 
 function updateOverflow() {
-  if (!root.value) return;
+  if (!root.value || !collapseEnabled.value) {
+    hasOverflow.value = false;
+    return;
+  }
   if (expanded.value) {
     hasOverflow.value = false;
     return;
@@ -108,6 +130,7 @@ onBeforeUnmount(() => {
 });
 
 function toggleExpanded() {
+  if (!collapseEnabled.value) return;
   expanded.value = !expanded.value;
   if (!expanded.value && root.value) {
     root.value.scrollTop = 0;
@@ -119,6 +142,20 @@ watch(
   () => props.jobs.length,
   () => nextTick(() => updateOverflow()),
 );
+
+watch(
+  collapseEnabled,
+  (value) => {
+    if (!value) {
+      expanded.value = true;
+      hasOverflow.value = false;
+    } else {
+      expanded.value = false;
+      nextTick(() => updateOverflow());
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
@@ -127,11 +164,14 @@ watch(
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding: 0.75rem 0.85rem;
+  gap: 0.35rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
+}
+
+.repo-jobs.has-header {
+  gap: 0.65rem;
 }
 
 .jobs-header {
@@ -169,10 +209,90 @@ watch(
   color: var(--color-text-subtle);
 }
 
-.jobs-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+.jobs-table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-md)
+}
+
+.jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 560px;
+  font-size: 0.85rem;
+}
+
+.jobs-table th {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.jobs-table :deep(td) {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.jobs-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  background-color: rgba(226, 232, 240, 0.6);
+}
+
+.jobs-table th:last-child,
+.jobs-table :deep(td:last-child) {
+  text-align: right;
+}
+
+.jobs-table :deep(tbody tr:last-child td) {
+  border-bottom: none;
+}
+
+.jobs-table.compact {
+  min-width: 0;
+}
+
+.jobs-table.compact thead {
+  display: none;
+}
+
+.jobs-table.compact :deep(tbody tr) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 1rem;
+  padding: 0.55rem 0.3rem;
+}
+
+.jobs-table.compact :deep(tbody tr td) {
+  border-bottom: none;
+  padding: 0.35rem 0;
+}
+
+.jobs-table.compact :deep(tbody tr td)::before {
+  content: attr(data-label);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  margin-bottom: 0.25rem;
+}
+
+.jobs-table.compact :deep(tbody tr td:last-child) {
+  text-align: left;
+}
+
+.jobs-table.compact :deep(tbody tr .job-cell-name) {
+  grid-column: 1 / -1;
+}
+
+.jobs-table.compact :deep(tbody tr .job-cell-allocations) {
+  grid-column: 1 / -1;
+}
+
+.jobs-table.compact :deep(tbody tr .job-cell-allocations .allocation-summary) {
+  justify-content: flex-start;
 }
 
 .repo-jobs.collapsed {

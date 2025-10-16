@@ -1,15 +1,7 @@
 <template>
   <section class="repo-status">
-    <div class="commit-row">
-      <div class="commit-text">
-        <p class="commit-message">
-          {{ repo.last_commit_title || 'No commits reconciled yet.' }}
-        </p>
-        <div class="commit-meta">
-          <span class="author-name">{{ repo.last_commit_author || 'Unknown author' }}</span>
-        </div>
-      </div>
-
+    <div class="repo-status__header">
+      <span class="repo-status__label">Last commit</span>
       <a
         v-if="repo.last_commit && commitLink"
         class="commit-hash"
@@ -22,11 +14,20 @@
       </a>
       <code
         v-else-if="repo.last_commit"
-        class="commit-hash"
+        class="commit-hash commit-hash--static"
         :title="repo.last_commit || 'Awaiting first run'"
       >
         {{ commitHash }}
       </code>
+      <span v-else class="commit-empty">—</span>
+    </div>
+    <div class="repo-status__details">
+      <span class="commit-message">
+        {{ repo.last_commit_title || 'No commits reconciled yet.' }}
+      </span>
+      <span class="commit-meta">
+        {{ repo.last_commit_author || 'Unknown author' }}
+      </span>
     </div>
   </section>
 </template>
@@ -44,79 +45,79 @@ const commitHash = computed(() => formatCommitHash(props.repo.last_commit));
 
 <style scoped>
 .repo-status {
-  margin: 0;
-  padding: 0 0 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  border-bottom: 1px solid var(--color-border-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 0.5rem 0.75rem;
+  display: grid;
+  row-gap: 0.4rem;
 }
 
-.commit-row {
+.repo-status__header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
-.commit-text {
+.repo-status__label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+}
+
+.repo-status__details {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  flex: 1;
-  min-width: 200px;
+  gap: 0.25rem;
 }
 
 .commit-message {
-  margin: 0;
-  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
   font-weight: 600;
   color: var(--color-text-primary);
+  font-size: 0.85rem;
 }
 
 .commit-meta {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-  font-size: 0.78rem;
   color: var(--color-text-subtle);
+  font-size: 0.8rem;
 }
 
 .commit-hash {
   font-family: var(--font-mono);
-  background: var(--color-surface-muted);
-  border-radius: var(--radius-sm);
-  padding: 0.18rem 0.5rem;
+  padding: 0.14rem 0.4rem;
   border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
+  border-radius: 4px;
   letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  text-decoration: none;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
+  background: var(--color-surface-muted);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .commit-hash:hover,
 .commit-hash:focus-visible {
   border-color: var(--color-accent);
   color: var(--color-accent);
+  background: rgba(59, 130, 246, 0.08);
 }
 
-.author-name {
-  color: var(--color-text-secondary);
-  font-weight: 500;
+.commit-hash--static {
+  pointer-events: none;
+  background: var(--color-surface);
 }
 
-@media (max-width: 768px) {
-  .repo-status {
-    padding-bottom: 0.65rem;
-  }
-}
-
-.repo-status:last-child {
-  border-bottom: none;
+.commit-empty {
+  color: var(--color-text-tertiary);
+  font-size: 0.8rem;
+  flex-shrink: 0;
 }
 </style>

@@ -7,7 +7,6 @@
     @click="openDetails"
     @keydown.enter.prevent="openDetails"
     @keydown.space.prevent="openDetails"
-    ref="rowRef"
   >
     <td class="cell-name">
       <span class="repo-name">{{ repo.name }}</span>
@@ -53,78 +52,12 @@
       </button>
     </td>
   </tr>
-  <Teleport to="body">
-    <transition name="repo-modal">
-      <div
-        v-if="showDetails"
-        class="repo-modal__backdrop"
-        @click="closeDetails"
-      >
-        <div
-          class="repo-modal"
-          role="dialog"
-          :aria-modal="true"
-          :aria-labelledby="modalTitleId"
-          tabindex="-1"
-          ref="modalRef"
-          @click.stop
-        >
-          <header class="repo-modal__header">
-            <div class="repo-modal__heading">
-              <h3 :id="modalTitleId">{{ repo.name }}</h3>
-              <p v-if="repo.repo_url" class="repo-modal__subtitle">
-                {{ repo.repo_url }}
-              </p>
-            </div>
-            <button class="ghost small" type="button" @click="closeDetails">
-              Close
-            </button>
-          </header>
-          <div class="repo-modal__content">
-            <section class="repo-modal__meta">
-              <dl>
-                <div class="repo-modal__meta-item">
-                  <dt>Repository</dt>
-                  <dd>
-                    <a
-                      v-if="repo.repo_url"
-                      :href="repo.repo_url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {{ repo.repo_url }}
-                    </a>
-                    <span v-else>—</span>
-                  </dd>
-                </div>
-                <div class="repo-modal__meta-item">
-                  <dt>Credential</dt>
-                  <dd>{{ credentialLabel }}</dd>
-                </div>
-                <div class="repo-modal__meta-item">
-                  <dt>Namespace</dt>
-                  <dd>{{ repo.nomad_namespace || '—' }}</dd>
-                </div>
-                <div class="repo-modal__meta-item">
-                  <dt>Job path</dt>
-                  <dd>{{ repo.job_path || '—' }}</dd>
-                </div>
-              </dl>
-            </section>
-            <RepoPollingInfo :repo="repo" />
-            <RepoJobList :jobs="repo.jobs || []" />
-          </div>
-        </div>
-      </div>
-    </transition>
-  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
-import RepoJobList from './RepoJobList.vue';
+import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import RepoJobsSummary from './RepoJobsSummary.vue';
-import RepoPollingInfo from './RepoPollingInfo.vue';
 import type { Repo } from '@/types';
 import { formatRelativeTime, formatTimestamp } from '@/utils/date';
 
@@ -139,59 +72,17 @@ const emit = defineEmits<{
   (e: 'delete', repo: Repo): void;
 }>();
 
-const showDetails = ref(false);
-const modalRef = ref<HTMLElement | null>(null);
-const rowRef = ref<HTMLTableRowElement | null>(null);
+const router = useRouter();
 
 const isSyncing = computed(() => props.syncingRepoId === props.repo.id);
 const isDeleting = computed(() => props.deletingRepoId === props.repo.id);
-const credentialLabel = computed(() => (props.repo.credential_id ? 'Managed secret' : 'Public'));
-const modalTitleId = computed(() => `repo-${props.repo.id}-details`);
 const lastPolledRelative = computed(() => formatRelativeTime(props.repo.last_polled_at));
 const lastPolledAbsolute = computed(() => formatTimestamp(props.repo.last_polled_at));
 const lastPolledDatetime = computed(() => props.repo.last_polled_at ?? undefined);
 
-let previousBodyOverflow: string | null = null;
-
 function openDetails() {
-  showDetails.value = true;
+  router.push({ name: 'repo-detail', params: { id: props.repo.id } });
 }
-
-function closeDetails() {
-  showDetails.value = false;
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeDetails();
-  }
-}
-
-watch(showDetails, (value) => {
-  if (value) {
-    previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', handleKeydown);
-    nextTick(() => {
-      modalRef.value?.focus();
-    });
-  } else {
-    document.body.style.overflow = previousBodyOverflow ?? '';
-    previousBodyOverflow = null;
-    document.removeEventListener('keydown', handleKeydown);
-    nextTick(() => {
-      rowRef.value?.focus();
-    });
-  }
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown);
-  if (showDetails.value) {
-    document.body.style.overflow = previousBodyOverflow ?? '';
-  }
-});
 </script>
 
 <style scoped>
@@ -280,169 +171,9 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.repo-modal__backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  z-index: 1000;
-}
-
-.repo-modal {
-  width: min(780px, 100%);
-  max-height: min(90vh, 820px);
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-elevated);
-  outline: none;
-  display: flex;
-  flex-direction: column;
-  gap: 1.4rem;
-  padding: 1.6rem 1.8rem;
-  overflow: hidden;
-}
-
-.repo-modal__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.repo-modal__heading h3 {
-  margin: 0;
-  font-size: 1.12rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.repo-modal__subtitle {
-  margin: 0.4rem 0 0;
-  font-size: 0.88rem;
-  color: var(--color-text-secondary);
-  word-break: break-all;
-}
-
-.repo-modal__content {
-  display: flex;
-  flex-direction: column;
-  gap: 1.4rem;
-  flex: 1 1 auto;
-  position: relative;
-  overflow-y: auto;
-  padding-right: 0.6rem;
-  padding-bottom: 1.2rem;
-  margin-right: -0.6rem;
-  scrollbar-gutter: stable both-edges;
-}
-
-.repo-modal__content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.repo-modal__content::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(71, 85, 105, 0.35);
-}
-
-.repo-modal__content::before,
-.repo-modal__content::after {
-  content: '';
-  position: sticky;
-  left: 0;
-  right: 0;
-  height: 12px;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.repo-modal__content::before {
-  top: 0;
-  margin-top: -12px;
-  background: linear-gradient(180deg, var(--color-surface) 0%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0));
-}
-
-.repo-modal__content::after {
-  bottom: 0;
-  margin-bottom: -18px;
-  background: linear-gradient(0deg, var(--color-surface) 0%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
-}
-
-.repo-modal__meta {
-  padding: 1rem 1.2rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-muted);
-}
-
-.repo-modal__meta dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem 1.5rem;
-}
-
-.repo-modal__meta-item dt {
-  margin: 0 0 0.35rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-}
-
-.repo-modal__meta-item dd {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-  word-break: break-word;
-}
-
-.repo-modal__meta-item a {
-  color: var(--color-accent);
-}
-
-.repo-modal__meta-item a:hover,
-.repo-modal__meta-item a:focus-visible {
-  color: var(--color-accent-hover);
-}
-
-.repo-modal-enter-active,
-.repo-modal-leave-active {
-  transition: opacity var(--transition-base);
-}
-
-.repo-modal-enter-from,
-.repo-modal-leave-to {
-  opacity: 0;
-}
-
-.repo-modal-enter-active .repo-modal,
-.repo-modal-leave-active .repo-modal {
-  transition: transform var(--transition-base);
-}
-
-.repo-modal-enter-from .repo-modal,
-.repo-modal-leave-to .repo-modal {
-  transform: translateY(12px) scale(0.97);
-}
-
 @media (max-width: 960px) {
   .cell-status {
     min-width: 180px;
-  }
-}
-
-@media (max-width: 720px) {
-  .repo-modal {
-    padding: 1.3rem 1.1rem;
-    gap: 1.1rem;
-  }
-
-  .repo-modal__backdrop {
-    padding: 1.25rem;
   }
 }
 
