@@ -1,29 +1,70 @@
 <template>
-  <div class="settings-layout">
-    <section class="settings-card">
-      <header class="settings-card__header">
-        <h2>Auto refresh</h2>
-        <p>Choose how often repository data refreshes across the app.</p>
-      </header>
-      <label class="settings-card__field">
-        <span>Refresh interval</span>
-        <select v-model.number="selectedInterval">
-          <option
-            v-for="option in refreshIntervalOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
-    </section>
-    <CredentialForm ref="formRef" :saving="savingCredential" @submit="handleSubmit" />
-    <CredentialList
-      :credentials="credentials"
-      :deleting-credential-id="deletingCredentialId"
-      @delete="handleDelete"
-    />
+  <div class="settings-page">
+    <div class="settings-grid">
+      <section class="settings-section">
+        <header class="section-header">
+          <div>
+            <h2>App settings</h2>
+            <p>Configure how Compass behaves across the workspace.</p>
+          </div>
+        </header>
+        <div class="card">
+          <label class="field">
+            <span>Refresh interval</span>
+            <select v-model.number="selectedInterval">
+              <option
+                v-for="option in refreshIntervalOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <p class="card-helper">Applies to repository lists, details, and job summaries.</p>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <header class="section-header">
+          <div>
+            <h2>Credential vault</h2>
+            <p>HTTPS tokens and SSH keys are sealed with your container key.</p>
+          </div>
+          <button class="primary small" type="button" @click="openCredentialModal">
+            New credential
+          </button>
+        </header>
+        <CredentialList
+          :credentials="credentials"
+          :deleting-credential-id="deletingCredentialId"
+          @delete="handleDelete"
+        />
+      </section>
+    </div>
+
+    <ModalDialog
+      :open="showCredentialModal"
+      title="Add credential"
+      description="Store HTTPS tokens or SSH keys securely to reuse across repositories."
+      @close="handleModalClose"
+    >
+      <CredentialForm ref="formRef" @submit="handleSubmit" />
+      <template #footer>
+        <button class="ghost" type="button" @click="handleModalClose" :disabled="savingCredential">
+          Cancel
+        </button>
+        <button
+          class="primary"
+          type="button"
+          @click="submitCredentialForm"
+          :disabled="savingCredential"
+        >
+          <span v-if="savingCredential" class="loader"></span>
+          <span v-else>Save credential</span>
+        </button>
+      </template>
+    </ModalDialog>
   </div>
 </template>
 
@@ -31,10 +72,12 @@
 import { computed, ref } from 'vue';
 import CredentialForm from '@/components/CredentialForm.vue';
 import CredentialList from '@/components/CredentialList.vue';
+import ModalDialog from '@/components/ModalDialog.vue';
 import type { Credential } from '@/types';
 import { useCompassStore } from '@/composables/useCompassStore';
 
 const formRef = ref<InstanceType<typeof CredentialForm> | null>(null);
+const showCredentialModal = ref(false);
 
 const {
   credentials,
@@ -59,10 +102,26 @@ const selectedInterval = computed({
   },
 });
 
+function openCredentialModal() {
+  showCredentialModal.value = true;
+}
+
+function handleModalClose() {
+  if (savingCredential.value) {
+    return;
+  }
+  formRef.value?.reset();
+  showCredentialModal.value = false;
+}
+
+function submitCredentialForm() {
+  formRef.value?.requestSubmit();
+}
+
 async function handleSubmit(payload: Record<string, string>) {
   try {
     await createCredential(payload);
-    formRef.value?.reset();
+    handleModalClose();
   } catch (err) {
     // error bubbled globally
   }
@@ -86,55 +145,106 @@ async function handleDelete(credential: Credential) {
 </script>
 
 <style scoped>
-.settings-layout {
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 4vw, 2rem);
+}
+
+.settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.25rem;
+  gap: 2rem;
   align-items: start;
 }
 
-.settings-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
+@media (min-width: 980px) {
+  .settings-grid {
+    grid-template-columns: minmax(340px, 400px) minmax(520px, 1fr);
+    gap: 2.5rem;
+  }
 }
 
-.settings-card__header h2 {
+@media (min-width: 1280px) {
+  .settings-grid {
+    grid-template-columns: minmax(360px, 420px) minmax(560px, 1fr);
+  }
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.section-header > div {
+  flex: 1 1 auto;
+}
+
+.section-header button {
+  flex-shrink: 0;
+}
+
+.section-header h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
   color: var(--color-text-primary);
 }
 
-.settings-card__header p {
+.section-header p {
   margin: 0.35rem 0 0;
   color: var(--color-text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.4;
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
-.settings-card__field {
+@media (min-width: 980px) {
+  .section-header {
+    align-items: center;
+  }
+}
+
+.card {
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
+  gap: 1.15rem;
 }
 
-.settings-card__field select {
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
+.card select {
   background: var(--color-surface-muted);
-  color: var(--color-text-primary);
-  font-size: 0.9rem;
 }
 
-.settings-card__field select:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+.card-helper {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-tertiary);
+}
+
+@media (max-width: 640px) {
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .section-header button {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>
