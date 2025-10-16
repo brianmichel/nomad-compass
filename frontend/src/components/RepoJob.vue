@@ -1,75 +1,61 @@
 <template>
-  <div class="job-row" :class="{ compact }">
-    <div class="job-overview">
-      <div class="job-title-group">
-        <span class="status-dot" :class="statusClass"></span>
-        <span class="job-name">{{ jobName }}</span>
-        <span v-if="jobTypeLabel" class="job-type-pill">{{ jobTypeLabel }}</span>
-        <span v-if="jobNamespace" class="job-namespace-pill">{{ jobNamespace }}</span>
+  <tr
+    class="repo-job-row"
+    :class="{ 'repo-job-row--clickable': job.job_url }"
+    @click="handleRowClick"
+    @keydown.enter.prevent="handleRowActivate"
+    @keydown.space.prevent="handleRowActivate"
+    :tabindex="job.job_url ? 0 : undefined"
+    :role="job.job_url ? 'link' : undefined"
+  >
+    <td class="job-cell job-cell-name" :data-label="compact ? 'Job' : null">
+      <div class="job-name-row">
+        <span class="job-name">
+          {{ jobName }}
+        </span>
       </div>
-      <span
-        class="job-status-badge"
-        :class="statusClass"
-        :title="statusTooltip"
-      >
+      <div class="job-path">{{ job.path }}</div>
+    </td>
+    <td class="job-cell job-cell-status" :data-label="compact ? 'Status' : null">
+      <span class="job-status-badge" :class="statusClass" :title="statusTooltip">
         {{ statusLabel }}
       </span>
-    </div>
-
-    <div class="job-meta">
-      <div class="job-meta-left">
-        <span class="job-path">{{ job.path }}</span>
-        <div v-if="hasAllocations" class="allocation-summary">
-          <span class="allocation-pill healthy" v-if="runningCount">{{ runningCount }} Running</span>
-          <span class="allocation-pill pending" v-if="pendingCount">{{ pendingCount }} Pending</span>
-          <span class="allocation-pill danger" v-if="failedCount">{{ failedCount }} Failed</span>
-          <span class="allocation-pill muted" v-if="remainingCount">{{ remainingCount }} Other</span>
+    </td>
+    <td class="job-cell job-cell-type" :data-label="compact ? 'Type' : null">
+      <span v-if="jobTypeDisplay" class="job-type-chip">{{ jobTypeDisplay }}</span>
+      <span v-else class="job-type-chip job-type-chip--muted">—</span>
+    </td>
+    <td class="job-cell job-cell-namespace" :data-label="compact ? 'Namespace' : null">
+      <span class="job-namespace">{{ jobNamespaceDisplay }}</span>
+    </td>
+    <td class="job-cell job-cell-allocations" :data-label="compact ? 'Allocations' : null">
+      <div v-if="hasAllocationProgress" class="allocation-details">
+        <div class="allocation-progress-row">
+          <div
+            class="allocation-progress"
+            :class="`is-${allocationProgressState}`"
+            role="progressbar"
+            :aria-valuenow="allocationProgressPercent"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuetext="allocationProgressLabel"
+          >
+            <span
+              class="allocation-progress__fill"
+              :style="{ width: allocationProgressPercent + '%' }"
+            ></span>
+          </div>
+          <span class="allocation-progress__value">{{ allocationProgressDisplay }}</span>
         </div>
       </div>
-      <div class="job-meta-right">
-        <a
-          v-if="job.job_url"
-          class="job-link"
-          :href="job.job_url"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open in Nomad →
-        </a>
-        <div v-else-if="isBatchJob" class="job-inline-badge">Batch job</div>
-      </div>
-    </div>
-
-    <div v-if="showAllocationLink || isBatchJob" class="job-allocations-bar">
-      <a
-        v-if="showAllocationLink"
-        class="job-allocations"
-        :href="job.job_url"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="View allocations in Nomad"
-      >
-        <span
-          v-for="allocation in runningAllocations"
-          :key="allocation.id"
-          class="allocation-square"
-          :class="allocationStatusClass(allocation)"
-          :title="allocationTooltipForAllocation(allocation)"
-        ></span>
-      </a>
-      <span
-        v-else-if="isBatchJob"
-        class="job-inline-note"
-      >
-        Batch jobs run on demand; allocations appear after submission.
-      </span>
-    </div>
-  </div>
+      <span v-else class="allocation-empty">No data</span>
+    </td>
+  </tr>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { RepoJob, AllocationStatus } from '@/types';
+import type { RepoJob } from '@/types';
 import { getJobStatusClass, getJobStatusLabel, getJobStatusTooltip } from '@/utils/jobStatus';
 
 const props = defineProps<{
@@ -81,324 +67,290 @@ const jobName = computed(() => props.job.job_name || props.job.job_id || props.j
 const statusClass = computed(() => getJobStatusClass(props.job));
 const statusLabel = computed(() => getJobStatusLabel(props.job));
 const statusTooltip = computed(() => getJobStatusTooltip(props.job));
-
 const jobType = computed(() => (props.job.job_type || '').toLowerCase());
-const jobTypeLabel = computed(() => {
-  if (!jobType.value) return null;
-  return capitalize(jobType.value);
-});
-const jobNamespace = computed(() => props.job.nomad_namespace || null);
-const isServiceJob = computed(() => jobType.value === 'service');
-const isSystemJob = computed(() => jobType.value === 'system');
-const isBatchJob = computed(() => jobType.value === 'batch');
-
-const showAllocationLink = computed(
-  () => (isServiceJob.value || isSystemJob.value) && Boolean(props.job.job_url),
+const jobTypeDisplay = computed(() => (jobType.value ? capitalize(jobType.value) : null));
+const jobNamespace = computed(() => resolveNamespace(props.job));
+const jobNamespaceDisplay = computed(() => jobNamespace.value || '—');
+const desiredAllocations = computed(() => props.job.desired_allocations ?? 0);
+const runningAllocations = computed(() => props.job.running_allocations ?? 0);
+const pendingAllocations = computed(
+  () => (props.job.starting_allocations ?? 0) + (props.job.queued_allocations ?? 0),
 );
-
-const runningAllocations = computed(() => {
-  if (!Array.isArray(props.job.allocations)) {
-    return [] as AllocationStatus[];
-  }
-  return props.job.allocations.filter(
-    (allocation) => (allocation.status || '').toLowerCase() === 'running',
-  );
-});
-
-const allAllocations = computed(() => (Array.isArray(props.job.allocations) ? props.job.allocations : []));
-
-const runningCount = computed(() => runningAllocations.value.length);
-const pendingCount = computed(() =>
-  allAllocations.value.filter((allocation) =>
-    ['pending', 'starting', 'queued', 'evaluating'].includes((allocation.status || '').toLowerCase()),
-  ).length,
+const failedAllocations = computed(
+  () => (props.job.failed_allocations ?? 0) + (props.job.lost_allocations ?? 0),
 );
-const failedCount = computed(() =>
-  allAllocations.value.filter((allocation) =>
-    ['failed', 'lost', 'dead', 'missing', 'cancelled'].includes((allocation.status || '').toLowerCase()),
-  ).length,
-);
-const remainingCount = computed(() => {
-  const other = allAllocations.value.length - runningCount.value - pendingCount.value - failedCount.value;
-  return other > 0 ? other : 0;
-});
+const unknownAllocations = computed(() => props.job.unknown_allocations ?? 0);
+const compact = computed(() => props.compact ?? false);
 
-const hasAllocations = computed(() => allAllocations.value.length > 0);
+type RepoJobWithNomadNamespace = RepoJob & { nomad_namespace?: string | null };
 
-function allocationStatusClass(allocation: AllocationStatus) {
-  const status = (allocation.status || '').toLowerCase();
-  if (['complete'].includes(status)) {
-    return 'completed';
-  }
-  if (['running', 'successful'].includes(status)) {
-    return 'healthy';
-  }
-  if (['starting', 'pending', 'queued', 'evaluating'].includes(status)) {
-    return 'pending';
-  }
-  if (['failed', 'lost', 'dead', 'missing', 'cancelled'].includes(status)) {
-    return 'danger';
-  }
-  if (allocation.healthy === false) {
-    return 'danger';
-  }
-  if (allocation.healthy === true) {
-    return 'healthy';
-  }
-  return 'healthy';
+function resolveNamespace(job: RepoJob): string | null {
+  const extended = job as RepoJobWithNomadNamespace;
+  return extended.namespace || extended.nomad_namespace || null;
 }
 
-function allocationTooltipForAllocation(allocation: AllocationStatus) {
+const allocationTotals = computed(() => {
+  const running = runningAllocations.value;
+  const pending = pendingAllocations.value;
+  const failed = failedAllocations.value;
+  const unknown = unknownAllocations.value;
+  const total = running + pending + failed + unknown;
+  const desired = desiredAllocations.value;
+  const denominator = desired > 0 ? desired : total;
+
+  return { running, pending, failed, unknown, total, denominator };
+});
+
+const hasAllocationProgress = computed(() => allocationTotals.value.denominator > 0);
+
+const allocationProgressPercent = computed(() => {
+  const totals = allocationTotals.value;
+  if (!totals.denominator) {
+    return 0;
+  }
+  const percent = (totals.running / totals.denominator) * 100;
+  return Math.max(0, Math.min(100, Math.round(percent)));
+});
+
+const allocationProgressState = computed(() => {
+  if (!hasAllocationProgress.value) {
+    return 'empty';
+  }
+  if (desiredAllocations.value > 0 && runningAllocations.value >= desiredAllocations.value) {
+    return 'complete';
+  }
+  if (runningAllocations.value > 0) {
+    return 'partial';
+  }
+  return 'empty';
+});
+
+const allocationProgressDisplay = computed(() => {
+  if (!hasAllocationProgress.value) {
+    return '';
+  }
+  if (desiredAllocations.value > 0) {
+    return `${runningAllocations.value}/${desiredAllocations.value}`;
+  }
+  return `${runningAllocations.value}`;
+});
+
+const allocationProgressLabel = computed(() => {
+  const totals = allocationTotals.value;
+  if (!totals.denominator) {
+    return '';
+  }
+
   const parts: string[] = [];
-  if (allocation.name) {
-    parts.push(allocation.name);
+  const desired = desiredAllocations.value;
+  if (desired > 0) {
+    parts.push(`Running ${totals.running}/${desired}`);
+  } else {
+    parts.push(`Running ${totals.running}`);
   }
-  if (allocation.id) {
-    parts.push(allocation.id);
+
+  if (totals.pending > 0) {
+    parts.push(`${totals.pending} pending`);
   }
-  if (allocation.status) {
-    parts.push(`Status: ${capitalize(allocation.status)}`);
+  if (totals.failed > 0) {
+    parts.push(`${totals.failed} failed`);
   }
-  return parts.join(' • ') || 'View in Nomad';
-}
+  if (totals.unknown > 0) {
+    parts.push(`${totals.unknown} unknown`);
+  }
+
+  return parts.join(', ');
+});
 
 function capitalize(value: string) {
   if (!value.length) return value;
   return value[0].toUpperCase() + value.slice(1);
 }
+
+function handleRowClick(event: MouseEvent) {
+  if (!props.job.job_url) {
+    return;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (target && (target.tagName === 'A' || target.closest('a') || target.closest('button'))) {
+    return;
+  }
+
+  window.open(props.job.job_url, '_blank', 'noopener,noreferrer');
+}
+
+function handleRowActivate() {
+  if (!props.job.job_url) {
+    return;
+  }
+  window.open(props.job.job_url, '_blank', 'noopener,noreferrer');
+}
 </script>
 
 <style scoped>
-.job-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
+.repo-job-row td {
+  vertical-align: middle;
+  background: var(--color-surface);
 }
 
-.job-overview {
+.repo-job-row:hover td {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.repo-job-row--clickable {
+  cursor: pointer;
+}
+
+.repo-job-row--clickable td {
+  cursor: pointer;
+}
+
+.repo-job-row--clickable .job-name {
+  color: var(--color-text-primary);
+  transition: color var(--transition-fast);
+}
+
+.repo-job-row--clickable:hover .job-name,
+.repo-job-row--clickable:focus-visible .job-name {
+  color: var(--color-accent-hover);
+}
+
+.job-cell-name {
+  min-width: 220px;
+}
+
+.job-name-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.job-title-group {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.status-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--status-unknown-border);
-  flex-shrink: 0;
-}
-
-.status-dot.healthy {
-  background: var(--color-success);
-}
-
-.status-dot.pending {
-  background: var(--status-pending-text);
-}
-
-.status-dot.warning {
-  background: var(--status-warning-text);
-}
-
-.status-dot.danger {
-  background: var(--color-danger);
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .job-name {
   font-weight: 600;
   color: var(--color-text-primary);
   font-size: 0.92rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.job-type-pill,
-.job-namespace-pill {
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  padding: 0.12rem 0.4rem;
-}
-
-.job-namespace-pill {
-  letter-spacing: 0.06em;
-}
-
-
-.job-meta {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.job-meta-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
+  text-decoration: none;
 }
 
 .job-path {
-  font-size: 0.78rem;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
   color: var(--color-text-subtle);
   font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
-.allocation-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+.job-cell-status {
+  min-width: 120px;
 }
 
-.allocation-pill {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+.job-cell-type {
+  min-width: 110px;
+}
+
+.job-cell-namespace {
+  min-width: 110px;
+}
+
+.job-type-chip {
+  display: inline-block;
+  font-size: 0.76rem;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 0.14rem 0.4rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--status-unknown-border);
-  background: var(--status-unknown-bg);
-  color: var(--status-unknown-text);
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
-.allocation-pill.healthy {
-  border-color: var(--status-healthy-border);
-  background: var(--status-healthy-bg);
-  color: var(--status-healthy-text);
-}
-
-.allocation-pill.pending {
-  border-color: var(--status-pending-border);
-  background: var(--status-pending-bg);
-  color: var(--status-pending-text);
-}
-
-.allocation-pill.danger {
-  border-color: var(--status-danger-border);
-  background: var(--status-danger-bg);
-  color: var(--status-danger-text);
-}
-
-.allocation-pill.muted {
-  border-color: var(--color-border);
-  background: var(--color-surface);
+.job-type-chip--muted {
   color: var(--color-text-tertiary);
 }
 
-.job-meta-right {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.job-link {
+.job-namespace {
   font-size: 0.78rem;
-  color: var(--color-accent);
-  text-decoration: none;
+  color: var(--color-text-secondary);
 }
 
-.job-link:hover,
-.job-link:focus-visible {
-  color: var(--color-accent-hover);
+.job-cell-allocations {
+  min-width: 200px;
+  text-align: left;
 }
 
-.job-inline-badge {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-tertiary);
-  padding: 0.12rem 0.4rem;
+.allocation-details {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
 }
 
-.job-allocations-bar {
+.allocation-progress-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.45rem;
+  width: 100%;
 }
 
-.job-allocations {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  text-decoration: none;
+.allocation-progress {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  overflow: hidden;
 }
 
-.allocation-square {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 0.18rem;
-  background: var(--color-border);
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  transition: opacity var(--transition-fast);
+.allocation-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  pointer-events: none;
 }
 
-.allocation-square:hover {
-  opacity: 0.8;
+.allocation-progress__fill {
+  display: block;
+  height: 100%;
+  transition: width var(--transition-fast);
+  background: var(--jobs-bar-healthy);
 }
 
-.allocation-square.healthy {
-  background: var(--color-success);
-  border-color: var(--color-success);
+.allocation-progress.is-complete .allocation-progress__fill {
+  background: var(--jobs-bar-healthy);
 }
 
-.allocation-square.completed {
-  background: var(--status-healthy-bg);
-  border-color: var(--color-success-border);
+.allocation-progress.is-partial .allocation-progress__fill {
+  background: var(--jobs-bar-healthy);
 }
 
-.allocation-square.pending {
-  background: var(--status-pending-text);
-  border-color: var(--status-pending-text);
+.allocation-progress.is-empty .allocation-progress__fill {
+  background: transparent;
 }
 
-.allocation-square.danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
+.allocation-progress__value {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 2.5rem;
 }
 
-
-.job-inline-note {
+.allocation-empty {
   font-size: 0.75rem;
-  color: var(--color-text-subtle);
+  color: var(--color-text-tertiary);
 }
-
 
 .job-status-badge {
-  font-size: 0.74rem;
-  padding: 0.18rem 0.55rem;
-  border-radius: var(--radius-pill);
-  text-transform: none;
+  font-size: 0.84rem;
+  padding: 0.26rem 0.4rem;
+  border-radius: 4px;
   border: 1px solid var(--status-unknown-border);
   background: var(--status-unknown-bg);
   color: var(--status-unknown-text);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -432,23 +384,9 @@ function capitalize(value: string) {
   color: var(--status-unknown-text);
 }
 
-
-.job-row.compact {
-  padding: 0.55rem 0.7rem;
-}
-
-.job-row.compact .job-overview {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
-}
-
-.job-row.compact .job-meta {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.job-row.compact .job-meta-right {
-  align-self: flex-start;
+@media (max-width: 720px) {
+  .allocation-progress-row {
+    justify-content: flex-start;
+  }
 }
 </style>
