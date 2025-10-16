@@ -123,6 +123,16 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		return &JobStatus{ID: jobID, Exists: false}, nil
 	}
 
+	desiredFromGroups := 0
+	if job.TaskGroups != nil {
+		for _, tg := range job.TaskGroups {
+			if tg == nil || tg.Count == nil {
+				continue
+			}
+			desiredFromGroups += int(*tg.Count)
+		}
+	}
+
 	status := &JobStatus{
 		ID:                derefString(job.ID, job.Name),
 		Name:              derefString(job.Name, job.ID),
@@ -132,6 +142,7 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		StatusDescription: derefString(job.StatusDescription, nil),
 		Exists:            true,
 		DerivedStatus:     strings.ToLower(derefString(job.Status, nil)),
+		DesiredAllocs:     desiredFromGroups,
 	}
 
 	if statusSummaries, _, err := a.client.Jobs().Summary(status.ID, nil); err == nil && statusSummaries != nil && statusSummaries.Summary != nil {
@@ -145,7 +156,9 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 			unknown += grp.Unknown
 		}
 		desired = running + starting + queued + failed + lost + unknown
-		status.DesiredAllocs = desired
+		if status.DesiredAllocs == 0 {
+			status.DesiredAllocs = desired
+		}
 		status.RunningAllocs = running
 		status.StartingAllocs = starting
 		status.QueuedAllocs = queued

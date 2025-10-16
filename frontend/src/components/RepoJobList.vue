@@ -254,6 +254,17 @@ watch(
   min-width: 0;
 }
 
+thead th {
+  text-align: left;
+  color: var(--color-text-secondary);
+  background-color: #f1f2f3;
+  border-right: 1px solid var(--color-border);
+}
+
+thead th:last-child {
+  border-right: none;
+}
+
 .jobs-table.compact thead {
   display: none;
 }
