@@ -31,7 +31,11 @@ interface CompassState {
   syncingRepoId: number | null;
   deletingRepoId: number | null;
   deletingCredentialId: number | null;
+  refreshIntervalMs: number;
 }
+
+const DEFAULT_REFRESH_INTERVAL_MS = 60000;
+const ALLOWED_REFRESH_INTERVALS = [30000, 60000, 90000] as const;
 
 const state = reactive<CompassState>({
   credentials: [],
@@ -44,6 +48,7 @@ const state = reactive<CompassState>({
   syncingRepoId: null,
   deletingRepoId: null,
   deletingCredentialId: null,
+  refreshIntervalMs: DEFAULT_REFRESH_INTERVAL_MS,
 });
 
 async function refreshAll() {
@@ -158,6 +163,13 @@ function setError(err: unknown) {
   }
 }
 
+function setRefreshInterval(interval: number) {
+  const normalized = ALLOWED_REFRESH_INTERVALS.includes(interval as (typeof ALLOWED_REFRESH_INTERVALS)[number])
+    ? interval
+    : DEFAULT_REFRESH_INTERVAL_MS;
+  state.refreshIntervalMs = normalized;
+}
+
 export function useCompassStore() {
   return {
     ...toRefs(state),
@@ -172,6 +184,7 @@ export function useCompassStore() {
     triggerReconcile,
     clearError,
     setError,
+    setRefreshInterval,
   };
 }
 

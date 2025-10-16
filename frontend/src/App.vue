@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Topbar from '@/components/Topbar.vue';
 import ToastMessage from '@/components/ToastMessage.vue';
 import RepoForm from '@/components/RepoForm.vue';
@@ -51,18 +51,35 @@ const {
   clearError,
   status,
   credentials,
+  loadRepos,
   savingRepo,
   createRepo,
+  refreshIntervalMs,
 } = useCompassStore();
 
 const showRepoModal = ref(false);
 const repoFormRef = ref<InstanceType<typeof RepoForm> | null>(null);
 
+const repoPolling = ref(false);
+let repoPollIntervalId: number | null = null;
+
+const pollIntervalMs = computed(() => Math.max(1000, refreshIntervalMs.value));
+
 useBodyScrollLock(showRepoModal);
 
 onMounted(() => {
-  refreshAll();
+  void (async () => {
+    await refreshAll();
+    startRepoPolling();
+  })();
 });
+
+watch(
+  pollIntervalMs,
+  () => {
+    startRepoPolling();
+  },
+);
 
 function openRepoModal() {
   showRepoModal.value = true;
@@ -82,6 +99,39 @@ function closeRepoModal() {
   showRepoModal.value = false;
   repoFormRef.value?.reset();
 }
+
+async function refreshRepos() {
+  if (repoPolling.value) {
+    return;
+  }
+  repoPolling.value = true;
+  try {
+    await loadRepos();
+  } catch (err) {
+    // errors surfaced elsewhere
+  } finally {
+    repoPolling.value = false;
+  }
+}
+
+function stopRepoPolling() {
+  if (repoPollIntervalId !== null) {
+    window.clearInterval(repoPollIntervalId);
+    repoPollIntervalId = null;
+  }
+}
+
+function startRepoPolling() {
+  stopRepoPolling();
+  repoPollIntervalId = window.setInterval(() => {
+    void refreshRepos();
+  }, pollIntervalMs.value);
+  void refreshRepos();
+}
+
+onBeforeUnmount(() => {
+  stopRepoPolling();
+});
 </script>
 
 <style scoped>
