@@ -184,7 +184,7 @@ async function handleDelete() {
   display: flex;
   justify-content: space-between;
   gap: 1.5rem;
-  align-items: center;
+  align-items: top;
   flex-wrap: wrap;
 }
 
