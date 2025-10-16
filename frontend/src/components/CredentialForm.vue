@@ -1,13 +1,6 @@
 <template>
-  <section class="panel">
-    <header class="panel-header">
-      <div>
-        <h2>Credential vault</h2>
-        <p>HTTPS tokens and SSH keys are sealed with your container key.</p>
-      </div>
-    </header>
-
-    <form class="form-grid" @submit.prevent="handleSubmit">
+  <form ref="formEl" class="credential-form" @submit.prevent="handleSubmit">
+    <div class="form-grid">
       <label class="field">
         <span>Display name</span>
         <input v-model="form.name" placeholder="production-github" required />
@@ -46,22 +39,25 @@
           <input v-model="form.passphrase" type="password" />
         </label>
       </template>
+    </div>
 
-      <button class="primary" type="submit" :disabled="saving">
-        <span v-if="saving" class="loader"></span>
-        <span v-else>Add credential</span>
-      </button>
-    </form>
-  </section>
+    <p class="helper-text">
+      Credentials are encrypted with your container key before leaving the browser.
+    </p>
+
+    <button ref="submitButton" type="submit" class="visually-hidden">Submit</button>
+  </form>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 
-const props = defineProps<{ saving: boolean }>();
 const emit = defineEmits<{
   (e: 'submit', payload: Record<string, string>): void;
 }>();
+
+const formEl = ref<HTMLFormElement | null>(null);
+const submitButton = ref<HTMLButtonElement | null>(null);
 
 const form = reactive({
   name: '',
@@ -85,5 +81,44 @@ function reset() {
   form.type = 'https-token';
 }
 
-defineExpose({ reset, form });
+function requestSubmit() {
+  if (formEl.value) {
+    formEl.value.requestSubmit();
+    return;
+  }
+  submitButton.value?.click();
+}
+
+defineExpose({ reset, form, requestSubmit });
 </script>
+
+<style scoped>
+.credential-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.credential-form :deep(textarea) {
+  min-height: 140px;
+}
+
+.helper-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+</style>
