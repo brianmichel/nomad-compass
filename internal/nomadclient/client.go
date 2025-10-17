@@ -221,20 +221,22 @@ func deriveStatus(status *JobStatus) (string, string) {
 		return "", ""
 	}
 
+	if status.DesiredAllocs > 0 && status.RunningAllocs >= status.DesiredAllocs {
+		return "healthy", formatAllocationSummary(status)
+	}
+	if status.RunningAllocs > 0 {
+		if status.DesiredAllocs == 0 || status.RunningAllocs < status.DesiredAllocs {
+			return "degraded", formatAllocationSummary(status)
+		}
+	}
+	if status.StartingAllocs > 0 || status.QueuedAllocs > 0 {
+		return "deploying", formatAllocationSummary(status)
+	}
 	if status.FailedAllocs > 0 {
 		return "failed", formatAllocationSummary(status)
 	}
 	if status.LostAllocs > 0 {
 		return "lost", formatAllocationSummary(status)
-	}
-	if status.RunningAllocs > 0 && status.DesiredAllocs > 0 {
-		if status.RunningAllocs == status.DesiredAllocs {
-			return "healthy", formatAllocationSummary(status)
-		}
-		return "degraded", formatAllocationSummary(status)
-	}
-	if status.StartingAllocs > 0 || status.QueuedAllocs > 0 {
-		return "deploying", formatAllocationSummary(status)
 	}
 	if status.Status == "pending" {
 		return "pending", formatAllocationSummary(status)
