@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -38,7 +39,12 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 	snapshot := &repomodel.Snapshot{CommitHash: "abc123", CommitAuthor: "Tester <test@example.com>", CommitTitle: "Initial"}
 	jobFile := repomodel.JobFile{Path: ".nomad/job.nomad.hcl", Content: []byte(`job "demo" { datacenters = ["dc1"] }`)}
 
-	id, err := m.applyJob(context.Background(), repo, jobFile, snapshot)
+	job, submission, err := parseJob(jobFile.Path, jobFile.Content)
+	if err != nil {
+		t.Fatalf("parse job: %v", err)
+	}
+
+	id, err := m.applyJob(context.Background(), repo, jobFile, snapshot, job, submission)
 	if err != nil {
 		t.Fatalf("apply job: %v", err)
 	}
@@ -130,15 +136,173 @@ func TestEnsureJobsRemovesDeletedJobs(t *testing.T) {
 	}
 }
 
+func TestEnsureJobsSkipsUnchangedJobs(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	jobContent := []byte(`job "demo" { datacenters = ["dc1"] }`)
+	jobPath := ".nomad/demo.nomad.hcl"
+	if err := fileStore.Upsert(ctx, repoRecord.ID, jobPath, "old", "demo"); err != nil {
+		t.Fatalf("upsert repo file: %v", err)
+	}
+
+	fake := &fakeNomad{
+		lastJob: &api.Job{ID: strPtr("demo"), Name: strPtr("demo")},
+		planResponses: map[string]*api.JobPlanResponse{
+			"demo": {},
+		},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	snapshot := &repomodel.Snapshot{
+		CommitHash: "new",
+		JobFiles: []repomodel.JobFile{{
+			Path:    jobPath,
+			Content: jobContent,
+		}},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if fake.registerCalls != 0 {
+		t.Fatalf("expected no job re-registrations, got %d", fake.registerCalls)
+	}
+
+	files, err := fileStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list repo files: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected repo file tracking retained, got %v", files)
+	}
+	file := files[0]
+	if !file.LastCommit.Valid || file.LastCommit.String != "new" {
+		t.Fatalf("expected last commit updated to new, got %+v", file.LastCommit)
+	}
+}
+
+func TestEnsureJobsReappliesChangedJobs(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	jobPath := ".nomad/demo.nomad.hcl"
+	if err := fileStore.Upsert(ctx, repoRecord.ID, jobPath, "old", "demo"); err != nil {
+		t.Fatalf("upsert repo file: %v", err)
+	}
+
+	fake := &fakeNomad{
+		lastJob: &api.Job{ID: strPtr("demo"), Name: strPtr("demo")},
+		planResponses: map[string]*api.JobPlanResponse{
+			"demo": {
+				Diff: &api.JobDiff{Fields: []*api.FieldDiff{{Name: "datacenters", Old: "[\"dc1\"]", New: "[\"dc1\",\"dc2\"]"}}},
+			},
+		},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	updatedContent := []byte(`job "demo" {
+  datacenters = ["dc1"]
+  meta = { version = "2" }
+}`)
+	snapshot := &repomodel.Snapshot{
+		CommitHash: "new",
+		JobFiles: []repomodel.JobFile{{
+			Path:    jobPath,
+			Content: updatedContent,
+		}},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected job re-registered once, got %d (last submission: %#v)", fake.registerCalls, fake.lastSubmission)
+	}
+	if fake.lastSubmission == nil || fake.lastSubmission.Source != string(updatedContent) {
+		t.Fatalf("expected submission with updated content, got %#v", fake.lastSubmission)
+	}
+
+	files, err := fileStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list repo files: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected repo file tracking retained, got %v", files)
+	}
+	file := files[0]
+	if !file.LastCommit.Valid || file.LastCommit.String != "new" {
+		t.Fatalf("expected last commit updated to new, got %+v", file.LastCommit)
+	}
+}
+
 type fakeNomad struct {
 	lastJob        *api.Job
 	lastSubmission *api.JobSubmission
 	deregistered   []string
+	registerCalls  int
+	planResponses  map[string]*api.JobPlanResponse
+	planErr        error
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
 	f.lastJob = job
 	f.lastSubmission = submission
+	f.registerCalls++
 	return nil
 }
 
@@ -170,4 +334,17 @@ func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.Job
 		Status: "running",
 		Exists: true,
 	}, nil
+}
+
+func (f *fakeNomad) PlanJob(_ context.Context, job *api.Job) (*api.JobPlanResponse, error) {
+	if f.planErr != nil {
+		return nil, f.planErr
+	}
+	if job == nil || job.ID == nil {
+		return nil, errors.New("job id required")
+	}
+	if resp, ok := f.planResponses[*job.ID]; ok {
+		return resp, nil
+	}
+	return &api.JobPlanResponse{}, nil
 }
