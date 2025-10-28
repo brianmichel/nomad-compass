@@ -15,6 +15,14 @@ Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single co
 - **Extensive metadata** – Jobs are tagged with repository URL, commit SHA, author, and commit title for traceability.
 - **Well tested** – Core encryption, storage, reconciliation, and Git plumbing covered by unit tests.
 
+## Screenshots
+
+*Monitored Repositories*
+![](/images/compass-repos.png)
+
+*Monitored Jobs*
+![](/images/compass-jobs.png)
+
 ## Getting Started
 
 ### Tooling with `mise`
