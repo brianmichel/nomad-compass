@@ -286,7 +286,108 @@ func TestEnsureJobsReappliesChangedJobs(t *testing.T) {
 	}
 }
 
-func TestEnsureJobsPlansAnnotatedJob(t *testing.T) {
+func TestEnsureJobsOnlyReappliesChangedJobAcrossRepo(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	changedPath := ".nomad/changed.nomad.hcl"
+	unchangedPath := ".nomad/unchanged.nomad.hcl"
+	if err := fileStore.Upsert(ctx, repoRecord.ID, changedPath, "old", "job-changed"); err != nil {
+		t.Fatalf("upsert changed repo file: %v", err)
+	}
+	if err := fileStore.Upsert(ctx, repoRecord.ID, unchangedPath, "old", "job-unchanged"); err != nil {
+		t.Fatalf("upsert unchanged repo file: %v", err)
+	}
+
+	fake := &fakeNomad{
+		planResponses: map[string]*api.JobPlanResponse{
+			"job-changed": {
+				Diff: &api.JobDiff{Fields: []*api.FieldDiff{{Name: "task.env.NEW_VAR", Old: "", New: "1"}}},
+			},
+			"job-unchanged": {},
+		},
+		jobStatuses: map[string]*nomadclient.JobStatus{
+			"job-changed":   {ID: "job-changed", Exists: true, Status: "running"},
+			"job-unchanged": {ID: "job-unchanged", Exists: true, Status: "running"},
+		},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	snapshot := &repomodel.Snapshot{
+		CommitHash: "new",
+		JobFiles: []repomodel.JobFile{
+			{
+				Path: changedPath,
+				Content: []byte(`job "job-changed" {
+  datacenters = ["dc1"]
+  group "g" {
+    task "t" {
+      driver = "docker"
+      config { image = "alpine:3.19" }
+      env { NEW_VAR = "1" }
+    }
+  }
+}`),
+			},
+			{
+				Path: unchangedPath,
+				Content: []byte(`job "job-unchanged" {
+  datacenters = ["dc1"]
+}`),
+			},
+		},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected only changed job to be re-registered, got %d", fake.registerCalls)
+	}
+	if len(fake.registeredJobIDs) != 1 || fake.registeredJobIDs[0] != "job-changed" {
+		t.Fatalf("expected job-changed to be the only re-registered job, got %v", fake.registeredJobIDs)
+	}
+
+	files, err := fileStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list repo files: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected two tracked files, got %d", len(files))
+	}
+	for _, file := range files {
+		if !file.LastCommit.Valid || file.LastCommit.String != "new" {
+			t.Fatalf("expected updated last commit for %s, got %+v", file.Path, file.LastCommit)
+		}
+	}
+}
+
+func TestEnsureJobsPlanUsesStableAnnotations(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
 	db, err := storage.Open(dbPath)
@@ -323,9 +424,9 @@ func TestEnsureJobsPlansAnnotatedJob(t *testing.T) {
 				job.Meta["nomad-compass/repo-url"] == "https://example.com/demo.git" &&
 				job.Meta["nomad-compass/repo-name"] == "demo" &&
 				job.Meta["nomad-compass/job-file"] == jobPath &&
-				job.Meta["nomad-compass/commit"] == "new" &&
-				job.Meta["nomad-compass/commit-author"] == "Tester <test@example.com>" &&
-				job.Meta["nomad-compass/commit-title"] == "No-op commit" {
+				job.Meta["nomad-compass/commit"] == "" &&
+				job.Meta["nomad-compass/commit-author"] == "" &&
+				job.Meta["nomad-compass/commit-title"] == "" {
 				metadataPlanned = true
 				return &api.JobPlanResponse{}, nil
 			}
@@ -429,15 +530,17 @@ func TestEnsureJobsReappliesOnStatusErrorWhenCommitChanged(t *testing.T) {
 }
 
 type fakeNomad struct {
-	lastJob        *api.Job
-	lastSubmission *api.JobSubmission
-	deregistered   []string
-	registerCalls  int
-	planResponses  map[string]*api.JobPlanResponse
-	planErr        error
-	planFn         func(job *api.Job) (*api.JobPlanResponse, error)
-	planCalls      int
-	jobStatusErr   error
+	lastJob          *api.Job
+	lastSubmission   *api.JobSubmission
+	registeredJobIDs []string
+	deregistered     []string
+	registerCalls    int
+	planResponses    map[string]*api.JobPlanResponse
+	planErr          error
+	planFn           func(job *api.Job) (*api.JobPlanResponse, error)
+	planCalls        int
+	jobStatusErr     error
+	jobStatuses      map[string]*nomadclient.JobStatus
 }
 
 func strPtr(s string) *string {
@@ -447,6 +550,9 @@ func strPtr(s string) *string {
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
 	f.lastJob = job
 	f.lastSubmission = submission
+	if id := jobID(job); id != "" {
+		f.registeredJobIDs = append(f.registeredJobIDs, id)
+	}
 	f.registerCalls++
 	return nil
 }
@@ -466,6 +572,12 @@ func (f *fakeNomad) Ping(context.Context) error {
 func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.JobStatus, error) {
 	if f.jobStatusErr != nil {
 		return nil, f.jobStatusErr
+	}
+	if f.jobStatuses != nil {
+		if status, ok := f.jobStatuses[jobID]; ok {
+			return status, nil
+		}
+		return &nomadclient.JobStatus{ID: jobID, Exists: false}, nil
 	}
 	if f.lastJob == nil || f.lastJob.ID == nil || *f.lastJob.ID != jobID {
 		return &nomadclient.JobStatus{ID: jobID, Exists: false}, nil

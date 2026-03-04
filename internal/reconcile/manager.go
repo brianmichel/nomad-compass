@@ -129,7 +129,7 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 		return "", errors.New("job and submission are required")
 	}
 
-	annotateJob(job, repoRecord, jobFile, snapshot)
+	annotateJob(job, repoRecord, jobFile, snapshot, true)
 
 	if err := m.nomad.RegisterJob(ctx, job, submission); err != nil {
 		return "", err
@@ -292,7 +292,7 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 		}
 
 		if tracked && !needApply {
-			annotateJob(job, repoRecord, jobFile, snapshot)
+			annotateJob(job, repoRecord, jobFile, snapshot, false)
 			plan, err := m.nomad.PlanJob(ctx, job)
 			if err != nil {
 				m.logger.Warn("job plan failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
@@ -394,7 +394,7 @@ func taskDiffHasChanges(diff *api.TaskDiff) bool {
 	return false
 }
 
-func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) {
+func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, includeCommitMetadata bool) {
 	if job == nil {
 		return
 	}
@@ -404,7 +404,9 @@ func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobF
 	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
 	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
 	job.Meta["nomad-compass/job-file"] = jobFile.Path
-	job.Meta["nomad-compass/commit"] = snapshot.CommitHash
-	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
-	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
+	if includeCommitMetadata && snapshot != nil {
+		job.Meta["nomad-compass/commit"] = snapshot.CommitHash
+		job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
+		job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
+	}
 }
