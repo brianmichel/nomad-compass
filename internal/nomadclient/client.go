@@ -18,6 +18,7 @@ type Client interface {
 	DeregisterJob(ctx context.Context, jobID string, purge bool) error
 	Ping(ctx context.Context) error
 	JobStatus(ctx context.Context, jobID string) (*JobStatus, error)
+	PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, error)
 }
 
 // API wraps the Nomad API client.
@@ -89,6 +90,21 @@ func (a *API) RegisterJob(ctx context.Context, job *api.Job, submission *api.Job
 	}
 	_, _, err := a.client.Jobs().RegisterOpts(job, opts, nil)
 	return err
+}
+
+// PlanJob computes the diff for a Nomad job without submitting it.
+func (a *API) PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, error) {
+	if job == nil {
+		return nil, errors.New("job is required")
+	}
+	if job.ID == nil || *job.ID == "" {
+		return nil, errors.New("job ID is required for planning")
+	}
+	resp, _, err := a.client.Jobs().Plan(job, true, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // DeregisterJob removes a Nomad job by ID.

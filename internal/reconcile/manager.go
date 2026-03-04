@@ -124,18 +124,12 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	return nil
 }
 
-func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) (string, error) {
-	job, submission, err := parseJob(jobFile.Path, jobFile.Content)
-	if err != nil {
-		return "", err
+func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, job *api.Job, submission *api.JobSubmission) (string, error) {
+	if job == nil || submission == nil {
+		return "", errors.New("job and submission are required")
 	}
 
-	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
-	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
-	job.Meta["nomad-compass/job-file"] = jobFile.Path
-	job.Meta["nomad-compass/commit"] = snapshot.CommitHash
-	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
-	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
+	annotateJob(job, repoRecord, jobFile, snapshot)
 
 	if err := m.nomad.RegisterJob(ctx, job, submission); err != nil {
 		return "", err
@@ -266,21 +260,30 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 	for _, jobFile := range snapshot.JobFiles {
 		seen[jobFile.Path] = struct{}{}
 		existing, tracked := fileIndex[jobFile.Path]
-		needApply := commitChanged || !tracked
+		job, submission, err := parseJob(jobFile.Path, jobFile.Content)
+		if err != nil {
+			m.logger.Error("job parse failed", "repo", repoRecord.Name, "file", jobFile.Path, "error", err)
+			continue
+		}
 
+		needApply := !tracked
 		var trackedJobID string
 		if tracked && existing.JobID.Valid {
 			trackedJobID = existing.JobID.String
 		}
 
-		if !needApply {
+		if tracked && !needApply {
 			if trackedJobID == "" {
 				needApply = true
 			} else {
 				status, err := m.nomad.JobStatus(ctx, trackedJobID)
 				if err != nil {
 					m.logger.Warn("job status check failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
-					continue
+					if commitChanged {
+						needApply = true
+					} else {
+						continue
+					}
 				}
 				if status == nil || !status.Exists {
 					needApply = true
@@ -288,11 +291,29 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 			}
 		}
 
+		if tracked && !needApply {
+			annotateJob(job, repoRecord, jobFile, snapshot)
+			plan, err := m.nomad.PlanJob(ctx, job)
+			if err != nil {
+				m.logger.Warn("job plan failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
+				needApply = true
+			} else if !jobPlanHasChanges(plan) {
+				if commitChanged {
+					if err := m.files.Upsert(ctx, repoRecord.ID, jobFile.Path, snapshot.CommitHash, trackedJobID); err != nil {
+						return err
+					}
+				}
+				continue
+			} else {
+				needApply = true
+			}
+		}
+
 		if !needApply {
 			continue
 		}
 
-		jobID, err := m.applyJob(ctx, repoRecord, jobFile, snapshot)
+		jobID, err := m.applyJob(ctx, repoRecord, jobFile, snapshot, job, submission)
 		if err != nil {
 			m.logger.Error("job apply failed", "repo", repoRecord.Name, "file", jobFile.Path, "error", err)
 			continue
@@ -324,4 +345,66 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 	}
 
 	return nil
+}
+
+func jobPlanHasChanges(resp *api.JobPlanResponse) bool {
+	if resp == nil {
+		return true
+	}
+	return jobDiffHasChanges(resp.Diff)
+}
+
+func jobDiffHasChanges(diff *api.JobDiff) bool {
+	if diff == nil {
+		return false
+	}
+	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+		return true
+	}
+	for _, tg := range diff.TaskGroups {
+		if taskGroupDiffHasChanges(tg) {
+			return true
+		}
+	}
+	return false
+}
+
+func taskGroupDiffHasChanges(diff *api.TaskGroupDiff) bool {
+	if diff == nil {
+		return false
+	}
+	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+		return true
+	}
+	for _, task := range diff.Tasks {
+		if taskDiffHasChanges(task) {
+			return true
+		}
+	}
+	return false
+}
+
+func taskDiffHasChanges(diff *api.TaskDiff) bool {
+	if diff == nil {
+		return false
+	}
+	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+		return true
+	}
+	return false
+}
+
+func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) {
+	if job == nil {
+		return
+	}
+	if job.Meta == nil {
+		job.Meta = map[string]string{}
+	}
+	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
+	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
+	job.Meta["nomad-compass/job-file"] = jobFile.Path
+	job.Meta["nomad-compass/commit"] = snapshot.CommitHash
+	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
+	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
 }

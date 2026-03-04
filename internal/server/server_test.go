@@ -47,6 +47,10 @@ func (f *fakeNomadClient) JobStatus(ctx context.Context, jobID string) (*nomadcl
 	return nil, nil
 }
 
+func (f *fakeNomadClient) PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, error) {
+	return &api.JobPlanResponse{}, nil
+}
+
 func setupServer(t *testing.T) (*Server, context.Context, *storage.RepoStore, *storage.RepoFileStore, *fakeNomadClient) {
 	t.Helper()
 
