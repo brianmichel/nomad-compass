@@ -286,6 +286,148 @@ func TestEnsureJobsReappliesChangedJobs(t *testing.T) {
 	}
 }
 
+func TestEnsureJobsPlansAnnotatedJob(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	jobPath := ".nomad/demo.nomad.hcl"
+	if err := fileStore.Upsert(ctx, repoRecord.ID, jobPath, "old", "demo"); err != nil {
+		t.Fatalf("upsert repo file: %v", err)
+	}
+
+	metadataPlanned := false
+	fake := &fakeNomad{
+		lastJob: &api.Job{ID: strPtr("demo"), Name: strPtr("demo")},
+		planFn: func(job *api.Job) (*api.JobPlanResponse, error) {
+			if job != nil &&
+				job.Meta["nomad-compass/repo-url"] == "https://example.com/demo.git" &&
+				job.Meta["nomad-compass/repo-name"] == "demo" &&
+				job.Meta["nomad-compass/job-file"] == jobPath &&
+				job.Meta["nomad-compass/commit"] == "new" &&
+				job.Meta["nomad-compass/commit-author"] == "Tester <test@example.com>" &&
+				job.Meta["nomad-compass/commit-title"] == "No-op commit" {
+				metadataPlanned = true
+				return &api.JobPlanResponse{}, nil
+			}
+			return &api.JobPlanResponse{
+				Diff: &api.JobDiff{
+					Fields: []*api.FieldDiff{{Name: "Meta", Old: "annotated", New: "missing"}},
+				},
+			}, nil
+		},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	snapshot := &repomodel.Snapshot{
+		CommitHash:   "new",
+		CommitAuthor: "Tester <test@example.com>",
+		CommitTitle:  "No-op commit",
+		JobFiles: []repomodel.JobFile{{
+			Path:    jobPath,
+			Content: []byte(`job "demo" { datacenters = ["dc1"] }`),
+		}},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if !metadataPlanned {
+		t.Fatalf("expected plan call to include injected metadata")
+	}
+	if fake.registerCalls != 0 {
+		t.Fatalf("expected unchanged job not to be re-registered, got %d", fake.registerCalls)
+	}
+}
+
+func TestEnsureJobsReappliesOnStatusErrorWhenCommitChanged(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	jobPath := ".nomad/demo.nomad.hcl"
+	if err := fileStore.Upsert(ctx, repoRecord.ID, jobPath, "old", "demo"); err != nil {
+		t.Fatalf("upsert repo file: %v", err)
+	}
+
+	fake := &fakeNomad{
+		lastJob:       &api.Job{ID: strPtr("demo"), Name: strPtr("demo")},
+		jobStatusErr:  errors.New("nomad read denied"),
+		planResponses: map[string]*api.JobPlanResponse{"demo": {}},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	updatedContent := []byte(`job "demo" {
+  datacenters = ["dc1"]
+  meta = { version = "2" }
+}`)
+	snapshot := &repomodel.Snapshot{
+		CommitHash: "new",
+		JobFiles: []repomodel.JobFile{{
+			Path:    jobPath,
+			Content: updatedContent,
+		}},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected job re-registered when status check fails on commit change, got %d", fake.registerCalls)
+	}
+	if fake.planCalls != 0 {
+		t.Fatalf("expected no plan calls when status check forces apply, got %d", fake.planCalls)
+	}
+}
+
 type fakeNomad struct {
 	lastJob        *api.Job
 	lastSubmission *api.JobSubmission
@@ -293,6 +435,9 @@ type fakeNomad struct {
 	registerCalls  int
 	planResponses  map[string]*api.JobPlanResponse
 	planErr        error
+	planFn         func(job *api.Job) (*api.JobPlanResponse, error)
+	planCalls      int
+	jobStatusErr   error
 }
 
 func strPtr(s string) *string {
@@ -319,6 +464,9 @@ func (f *fakeNomad) Ping(context.Context) error {
 }
 
 func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.JobStatus, error) {
+	if f.jobStatusErr != nil {
+		return nil, f.jobStatusErr
+	}
 	if f.lastJob == nil || f.lastJob.ID == nil || *f.lastJob.ID != jobID {
 		return &nomadclient.JobStatus{ID: jobID, Exists: false}, nil
 	}
@@ -337,8 +485,12 @@ func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.Job
 }
 
 func (f *fakeNomad) PlanJob(_ context.Context, job *api.Job) (*api.JobPlanResponse, error) {
+	f.planCalls++
 	if f.planErr != nil {
 		return nil, f.planErr
+	}
+	if f.planFn != nil {
+		return f.planFn(job)
 	}
 	if job == nil || job.ID == nil {
 		return nil, errors.New("job id required")

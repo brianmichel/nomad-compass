@@ -129,15 +129,7 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 		return "", errors.New("job and submission are required")
 	}
 
-	if job.Meta == nil {
-		job.Meta = map[string]string{}
-	}
-	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
-	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
-	job.Meta["nomad-compass/job-file"] = jobFile.Path
-	job.Meta["nomad-compass/commit"] = snapshot.CommitHash
-	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
-	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
+	annotateJob(job, repoRecord, jobFile, snapshot)
 
 	if err := m.nomad.RegisterJob(ctx, job, submission); err != nil {
 		return "", err
@@ -287,7 +279,11 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 				status, err := m.nomad.JobStatus(ctx, trackedJobID)
 				if err != nil {
 					m.logger.Warn("job status check failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
-					continue
+					if commitChanged {
+						needApply = true
+					} else {
+						continue
+					}
 				}
 				if status == nil || !status.Exists {
 					needApply = true
@@ -296,6 +292,7 @@ func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository
 		}
 
 		if tracked && !needApply {
+			annotateJob(job, repoRecord, jobFile, snapshot)
 			plan, err := m.nomad.PlanJob(ctx, job)
 			if err != nil {
 				m.logger.Warn("job plan failed", "repo", repoRecord.Name, "job_id", trackedJobID, "file", jobFile.Path, "error", err)
@@ -395,4 +392,19 @@ func taskDiffHasChanges(diff *api.TaskDiff) bool {
 		return true
 	}
 	return false
+}
+
+func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot) {
+	if job == nil {
+		return
+	}
+	if job.Meta == nil {
+		job.Meta = map[string]string{}
+	}
+	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
+	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
+	job.Meta["nomad-compass/job-file"] = jobFile.Path
+	job.Meta["nomad-compass/commit"] = snapshot.CommitHash
+	job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
+	job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
 }
