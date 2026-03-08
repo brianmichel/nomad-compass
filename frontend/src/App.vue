@@ -12,37 +12,32 @@
       <StatusBadge :connected="status.nomad_connected" :message="status.nomad_message" variant="footer" />
     </footer>
     <ToastMessage v-if="error" :message="error" @dismiss="clearError" />
-    <transition name="fade">
-      <div v-if="showRepoModal" class="modal-backdrop" @click.self="closeRepoModal">
-        <div class="modal-card">
-          <button
-            class="ghost close-button"
-            type="button"
-            @click="closeRepoModal"
-            aria-label="Close add repo form"
-          >
-            Close
-          </button>
-          <RepoForm
-            ref="repoFormRef"
-            :credentials="credentials"
-            :saving="savingRepo"
-            @submit="handleRepoSubmit"
-          />
-        </div>
-      </div>
-    </transition>
+    <ModalDialog
+      :open="showRepoModal"
+      title="Add repository"
+      description="Monitor a repository for Nomad job specifications."
+      @close="closeRepoModal"
+    >
+      <RepoForm
+        ref="repoFormRef"
+        :credentials="credentials"
+        :saving="savingRepo"
+        embedded
+        hide-header
+        @submit="handleRepoSubmit"
+      />
+    </ModalDialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import ModalDialog from '@/components/ModalDialog.vue';
 import Topbar from '@/components/Topbar.vue';
 import ToastMessage from '@/components/ToastMessage.vue';
 import RepoForm from '@/components/RepoForm.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { useCompassStore } from '@/composables/useCompassStore';
-import { useBodyScrollLock } from '@/composables/useBodyScrollLock';
 import type { RepoPayload } from '@/types';
 
 const {
@@ -64,8 +59,6 @@ const repoPolling = ref(false);
 let repoPollIntervalId: number | null = null;
 
 const pollIntervalMs = computed(() => Math.max(1000, refreshIntervalMs.value));
-
-useBodyScrollLock(showRepoModal);
 
 onMounted(() => {
   void (async () => {
@@ -162,57 +155,5 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
   margin-top: auto;
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: clamp(2rem, 4vw, 4rem);
-  overflow-y: auto;
-  z-index: 20;
-}
-
-.modal-card {
-  position: relative;
-  width: min(720px, 100%);
-  display: flex;
-  justify-content: center;
-  padding-top: 2.75rem;
-}
-
-.close-button {
-  font-size: 0.82rem;
-  padding: 0.4rem 0.95rem;
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  z-index: 1;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--color-text-secondary);
-  transition: border-color var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
-}
-
-.close-button:hover,
-.close-button:focus-visible {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-muted);
-  color: var(--color-text-primary);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 </style>

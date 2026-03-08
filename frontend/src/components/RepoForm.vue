@@ -1,6 +1,6 @@
 <template>
-  <form class="repo-form" @submit.prevent="handleSubmit">
-    <header class="repo-form__header">
+  <form :class="['repo-form', { 'repo-form--embedded': props.embedded }]" @submit.prevent="handleSubmit">
+    <header v-if="!props.hideHeader" class="repo-form__header">
       <div>
         <h2>Add repository</h2>
         <p>Repositories will have their files monitored for Nomad job specifications.</p>
@@ -47,7 +47,18 @@
 import { reactive } from 'vue';
 import type { Credential, RepoPayload } from '@/types';
 
-const props = defineProps<{ credentials: Credential[]; saving: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    credentials: Credential[];
+    saving: boolean;
+    embedded?: boolean;
+    hideHeader?: boolean;
+  }>(),
+  {
+    embedded: false,
+    hideHeader: false,
+  }
+);
 const emit = defineEmits<{
   (e: 'submit', payload: RepoPayload): void;
 }>();
@@ -94,6 +105,13 @@ defineExpose({ reset, form });
   gap: 1.4rem;
 }
 
+.repo-form--embedded {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
 .repo-form__header h2 {
   margin: 0;
   font-size: 1.18rem;
@@ -121,6 +139,10 @@ defineExpose({ reset, form });
 @media (max-width: 640px) {
   .repo-form {
     padding: 1.5rem;
+  }
+
+  .repo-form--embedded {
+    padding: 0;
   }
 
   .span-2 {

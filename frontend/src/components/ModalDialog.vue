@@ -9,11 +9,16 @@
         aria-modal="true"
       >
         <header class="modal__header">
-          <div>
+          <div class="modal__heading">
             <h2 :id="headingId">{{ props.title }}</h2>
             <p v-if="props.description" :id="descriptionId">{{ props.description }}</p>
           </div>
-          <button type="button" class="modal__close ghost small" @click="emitClose">
+          <button
+            type="button"
+            class="modal__close"
+            aria-label="Close dialog"
+            @click="emitClose"
+          >
             <span aria-hidden="true">&times;</span>
             <span class="sr-only">Close</span>
           </button>
@@ -87,23 +92,26 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: center;
   padding: 4rem 1.25rem;
-  background: rgba(17, 24, 39, 0.55);
-  backdrop-filter: blur(4px);
+  background: rgba(24, 37, 58, 0.2);
+  backdrop-filter: blur(2px);
   z-index: 2000;
   overflow-y: auto;
 }
 
 .modal {
-  width: min(620px, 100%);
+  width: min(680px, 100%);
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.96) 100%);
+  border-radius: 14px;
   border: 1px solid var(--color-border-soft);
-  box-shadow: var(--shadow-elevated);
-  padding: 1.75rem;
-  gap: 1.5rem;
-  animation: modal-in 0.18s ease-out;
+  box-shadow:
+    0 24px 48px -34px rgba(15, 23, 42, 0.28),
+    0 10px 22px -18px rgba(15, 23, 42, 0.14);
+  padding: 1.4rem 1.4rem 1.5rem;
+  gap: 1.25rem;
+  animation: modal-in 0.16s ease-out;
 }
 
 .modal__header {
@@ -111,22 +119,49 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+  padding-bottom: 0.15rem;
+}
+
+.modal__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .modal__header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.2rem;
+  line-height: 1.2;
   color: var(--color-text-primary);
 }
 
 .modal__header p {
-  margin: 0.4rem 0 0;
-  color: var(--color-text-tertiary);
+  margin: 0;
+  max-width: 34rem;
+  color: var(--color-text-secondary);
   font-size: 0.92rem;
 }
 
 .modal__close {
-  align-self: flex-start;
+  flex: 0 0 auto;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(193, 199, 211, 0.95);
+  background: rgba(247, 249, 252, 0.92);
+  color: var(--color-text-tertiary);
+  line-height: 1;
+  box-shadow: 0 6px 14px -12px rgba(15, 23, 42, 0.2);
+}
+
+.modal__close:hover,
+.modal__close:focus-visible {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  transform: translateY(-1px);
 }
 
 .modal__body {
@@ -156,7 +191,7 @@ onBeforeUnmount(() => {
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-6px);
   }
   to {
     opacity: 1;
@@ -170,8 +205,8 @@ onBeforeUnmount(() => {
   }
 
   .modal {
-    padding: 1.35rem;
-    border-radius: var(--radius-lg);
+    padding: 1.15rem 1.15rem 1.25rem;
+    border-radius: 12px;
   }
 }
 </style>
