@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/nomad/api"
@@ -13,6 +12,15 @@ import (
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	"github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
+)
+
+const (
+	compassMetaRepoURL      = "nomad-compass/repo-url"
+	compassMetaRepoName     = "nomad-compass/repo-name"
+	compassMetaJobFile      = "nomad-compass/job-file"
+	compassMetaCommit       = "nomad-compass/commit"
+	compassMetaCommitAuthor = "nomad-compass/commit-author"
+	compassMetaCommitTitle  = "nomad-compass/commit-title"
 )
 
 // Manager coordinates reconciliation cycles for onboarded repositories.
@@ -406,7 +414,18 @@ func fieldDiffsHaveChanges(fields []*api.FieldDiff) bool {
 }
 
 func isCompassCommitMetadataField(name string) bool {
-	return strings.Contains(name, "nomad-compass/commit")
+	switch name {
+	case nomadMetaFieldName(compassMetaCommit),
+		nomadMetaFieldName(compassMetaCommitAuthor),
+		nomadMetaFieldName(compassMetaCommitTitle):
+		return true
+	default:
+		return false
+	}
+}
+
+func nomadMetaFieldName(key string) string {
+	return "Meta[" + key + "]"
 }
 
 func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, includeCommitMetadata bool) {
@@ -416,12 +435,12 @@ func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobF
 	if job.Meta == nil {
 		job.Meta = map[string]string{}
 	}
-	job.Meta["nomad-compass/repo-url"] = repoRecord.RepoURL
-	job.Meta["nomad-compass/repo-name"] = repoRecord.Name
-	job.Meta["nomad-compass/job-file"] = jobFile.Path
+	job.Meta[compassMetaRepoURL] = repoRecord.RepoURL
+	job.Meta[compassMetaRepoName] = repoRecord.Name
+	job.Meta[compassMetaJobFile] = jobFile.Path
 	if includeCommitMetadata && snapshot != nil {
-		job.Meta["nomad-compass/commit"] = snapshot.CommitHash
-		job.Meta["nomad-compass/commit-author"] = snapshot.CommitAuthor
-		job.Meta["nomad-compass/commit-title"] = snapshot.CommitTitle
+		job.Meta[compassMetaCommit] = snapshot.CommitHash
+		job.Meta[compassMetaCommitAuthor] = snapshot.CommitAuthor
+		job.Meta[compassMetaCommitTitle] = snapshot.CommitTitle
 	}
 }

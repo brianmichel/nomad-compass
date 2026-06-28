@@ -68,12 +68,12 @@ func TestApplyJobAddsMetadata(t *testing.T) {
 
 	meta := fake.lastJob.Meta
 	cases := map[string]string{
-		"nomad-compass/repo-url":      repo.RepoURL,
-		"nomad-compass/repo-name":     repo.Name,
-		"nomad-compass/job-file":      jobFile.Path,
-		"nomad-compass/commit":        snapshot.CommitHash,
-		"nomad-compass/commit-author": snapshot.CommitAuthor,
-		"nomad-compass/commit-title":  snapshot.CommitTitle,
+		compassMetaRepoURL:      repo.RepoURL,
+		compassMetaRepoName:     repo.Name,
+		compassMetaJobFile:      jobFile.Path,
+		compassMetaCommit:       snapshot.CommitHash,
+		compassMetaCommitAuthor: snapshot.CommitAuthor,
+		compassMetaCommitTitle:  snapshot.CommitTitle,
 	}
 
 	for key, want := range cases {
@@ -423,17 +423,17 @@ func TestEnsureJobsIgnoresCompassCommitMetadataDiffsAcrossRepo(t *testing.T) {
 	}
 
 	commitMetadataDiff := &api.JobDiff{Fields: []*api.FieldDiff{
-		{Name: "Meta[nomad-compass/commit]", Old: "old", New: "new"},
-		{Name: "Meta[nomad-compass/commit-author]", Old: "Old <old@example.com>", New: "New <new@example.com>"},
-		{Name: "Meta[nomad-compass/commit-title]", Old: "Initial", New: "Update job B"},
+		{Name: nomadMetaFieldName(compassMetaCommit), Old: "old", New: "new"},
+		{Name: nomadMetaFieldName(compassMetaCommitAuthor), Old: "Old <old@example.com>", New: "New <new@example.com>"},
+		{Name: nomadMetaFieldName(compassMetaCommitTitle), Old: "Initial", New: "Update job B"},
 	}}
 	fake := &fakeNomad{
 		planResponses: map[string]*api.JobPlanResponse{
 			"job-a": {Diff: commitMetadataDiff},
 			"job-b": {Diff: &api.JobDiff{Fields: []*api.FieldDiff{
-				{Name: "Meta[nomad-compass/commit]", Old: "old", New: "new"},
-				{Name: "Meta[nomad-compass/commit-author]", Old: "Old <old@example.com>", New: "New <new@example.com>"},
-				{Name: "Meta[nomad-compass/commit-title]", Old: "Initial", New: "Update job B"},
+				{Name: nomadMetaFieldName(compassMetaCommit), Old: "old", New: "new"},
+				{Name: nomadMetaFieldName(compassMetaCommitAuthor), Old: "Old <old@example.com>", New: "New <new@example.com>"},
+				{Name: nomadMetaFieldName(compassMetaCommitTitle), Old: "Initial", New: "Update job B"},
 				{Name: "TaskGroups[web].Tasks[app].Config.image", Old: "alpine:3.18", New: "alpine:3.19"},
 			}}},
 			"job-c": {Diff: commitMetadataDiff},
@@ -515,12 +515,12 @@ func TestEnsureJobsPlanUsesStableAnnotations(t *testing.T) {
 		lastJob: &api.Job{ID: strPtr("demo"), Name: strPtr("demo")},
 		planFn: func(job *api.Job) (*api.JobPlanResponse, error) {
 			if job != nil &&
-				job.Meta["nomad-compass/repo-url"] == "https://example.com/demo.git" &&
-				job.Meta["nomad-compass/repo-name"] == "demo" &&
-				job.Meta["nomad-compass/job-file"] == jobPath &&
-				job.Meta["nomad-compass/commit"] == "" &&
-				job.Meta["nomad-compass/commit-author"] == "" &&
-				job.Meta["nomad-compass/commit-title"] == "" {
+				job.Meta[compassMetaRepoURL] == "https://example.com/demo.git" &&
+				job.Meta[compassMetaRepoName] == "demo" &&
+				job.Meta[compassMetaJobFile] == jobPath &&
+				job.Meta[compassMetaCommit] == "" &&
+				job.Meta[compassMetaCommitAuthor] == "" &&
+				job.Meta[compassMetaCommitTitle] == "" {
 				metadataPlanned = true
 				return &api.JobPlanResponse{}, nil
 			}
