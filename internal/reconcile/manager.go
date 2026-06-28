@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/nomad/api"
@@ -358,7 +359,7 @@ func jobDiffHasChanges(diff *api.JobDiff) bool {
 	if diff == nil {
 		return false
 	}
-	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+	if fieldDiffsHaveChanges(diff.Fields) || len(diff.Objects) > 0 {
 		return true
 	}
 	for _, tg := range diff.TaskGroups {
@@ -373,7 +374,7 @@ func taskGroupDiffHasChanges(diff *api.TaskGroupDiff) bool {
 	if diff == nil {
 		return false
 	}
-	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+	if fieldDiffsHaveChanges(diff.Fields) || len(diff.Objects) > 0 {
 		return true
 	}
 	for _, task := range diff.Tasks {
@@ -388,10 +389,24 @@ func taskDiffHasChanges(diff *api.TaskDiff) bool {
 	if diff == nil {
 		return false
 	}
-	if len(diff.Fields) > 0 || len(diff.Objects) > 0 {
+	if fieldDiffsHaveChanges(diff.Fields) || len(diff.Objects) > 0 {
 		return true
 	}
 	return false
+}
+
+func fieldDiffsHaveChanges(fields []*api.FieldDiff) bool {
+	for _, field := range fields {
+		if field == nil || isCompassCommitMetadataField(field.Name) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isCompassCommitMetadataField(name string) bool {
+	return strings.Contains(name, "nomad-compass/commit")
 }
 
 func annotateJob(job *api.Job, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, includeCommitMetadata bool) {

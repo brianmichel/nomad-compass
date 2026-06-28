@@ -387,6 +387,100 @@ func TestEnsureJobsOnlyReappliesChangedJobAcrossRepo(t *testing.T) {
 	}
 }
 
+func TestEnsureJobsIgnoresCompassCommitMetadataDiffsAcrossRepo(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "demo",
+		RepoURL: "https://example.com/demo.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	paths := map[string]string{
+		"job-a": ".nomad/a.nomad.hcl",
+		"job-b": ".nomad/b.nomad.hcl",
+		"job-c": ".nomad/c.nomad.hcl",
+	}
+	for jobID, path := range paths {
+		if err := fileStore.Upsert(ctx, repoRecord.ID, path, "old", jobID); err != nil {
+			t.Fatalf("upsert %s repo file: %v", jobID, err)
+		}
+	}
+
+	commitMetadataDiff := &api.JobDiff{Fields: []*api.FieldDiff{
+		{Name: "Meta[nomad-compass/commit]", Old: "old", New: "new"},
+		{Name: "Meta[nomad-compass/commit-author]", Old: "Old <old@example.com>", New: "New <new@example.com>"},
+		{Name: "Meta[nomad-compass/commit-title]", Old: "Initial", New: "Update job B"},
+	}}
+	fake := &fakeNomad{
+		planResponses: map[string]*api.JobPlanResponse{
+			"job-a": {Diff: commitMetadataDiff},
+			"job-b": {Diff: &api.JobDiff{Fields: []*api.FieldDiff{
+				{Name: "Meta[nomad-compass/commit]", Old: "old", New: "new"},
+				{Name: "Meta[nomad-compass/commit-author]", Old: "Old <old@example.com>", New: "New <new@example.com>"},
+				{Name: "Meta[nomad-compass/commit-title]", Old: "Initial", New: "Update job B"},
+				{Name: "TaskGroups[web].Tasks[app].Config.image", Old: "alpine:3.18", New: "alpine:3.19"},
+			}}},
+			"job-c": {Diff: commitMetadataDiff},
+		},
+		jobStatuses: map[string]*nomadclient.JobStatus{
+			"job-a": {ID: "job-a", Exists: true, Status: "running"},
+			"job-b": {ID: "job-b", Exists: true, Status: "running"},
+			"job-c": {ID: "job-c", Exists: true, Status: "running"},
+		},
+	}
+	m := &Manager{
+		files:  fileStore,
+		nomad:  fake,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	snapshot := &repomodel.Snapshot{
+		CommitHash:   "new",
+		CommitAuthor: "New <new@example.com>",
+		CommitTitle:  "Update job B",
+		JobFiles: []repomodel.JobFile{
+			{Path: paths["job-a"], Content: []byte(`job "job-a" { datacenters = ["dc1"] }`)},
+			{Path: paths["job-b"], Content: []byte(`job "job-b" {
+  datacenters = ["dc1"]
+  group "web" {
+    task "app" {
+      driver = "docker"
+      config { image = "alpine:3.19" }
+    }
+  }
+}`)},
+			{Path: paths["job-c"], Content: []byte(`job "job-c" { datacenters = ["dc1"] }`)},
+		},
+	}
+
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, true); err != nil {
+		t.Fatalf("ensure jobs: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected only job with non-metadata diff to be re-registered, got %d", fake.registerCalls)
+	}
+	if len(fake.registeredJobIDs) != 1 || fake.registeredJobIDs[0] != "job-b" {
+		t.Fatalf("expected job-b to be the only re-registered job, got %v", fake.registeredJobIDs)
+	}
+}
+
 func TestEnsureJobsPlanUsesStableAnnotations(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
