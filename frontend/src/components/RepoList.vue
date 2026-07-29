@@ -2,17 +2,17 @@
   <section class="repo-table">
     <header class="repo-table__header">
       <div>
-        <h1>Repositories</h1>
+        <h1 data-dialog-fallback tabindex="-1">Repositories</h1>
         <p>Git sources monitored for Nomad job specifications.</p>
       </div>
-      <button class="primary add-repo-header add-button" type="button" @click="$emit('add-repo')">
-        <span aria-hidden="true">＋</span>
+      <button class="btn btn-primary btn-sm add-repo-header" type="button" @click="$emit('add-repo')">
+        <IconPlus aria-hidden="true" />
         <span>Add repository</span>
       </button>
     </header>
 
     <div v-if="hasRepos" class="repo-table__surface">
-      <table>
+      <table class="table table-sm">
         <thead>
           <tr>
             <th scope="col">Name</th>
@@ -35,12 +35,19 @@
         </tbody>
       </table>
     </div>
-    <p v-else class="repo-empty">No repositories registered yet.</p>
+    <div v-else class="repo-empty">
+      <h2>No repositories yet</h2>
+      <p>Add a Git repository to discover and monitor Nomad jobs.</p>
+      <button class="btn btn-primary btn-sm" type="button" @click="$emit('add-repo')">
+        <IconPlus aria-hidden="true" /> Add repository
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { IconPlus } from '@tabler/icons-vue';
 import RepoCard from './RepoCard.vue';
 import type { Repo } from '@/types';
 
@@ -74,8 +81,8 @@ const hasRepos = computed(() => props.repos.length > 0);
   padding-bottom: 0.1rem;
 }
 
-.add-repo-header { flex-shrink: 0; box-shadow: none; }
-.add-button { line-height: 1; }
+.add-repo-header { flex-shrink: 0; }
+.add-repo-header svg, .repo-empty svg { width: .9rem; }
 
 .repo-table__header h1 {
   margin: 0;
@@ -123,14 +130,7 @@ thead th:last-child {
   .repo-table__header { align-items: flex-start; flex-direction: column; }
 }
 
-.repo-empty {
-  margin: 0;
-  padding: 1.5rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  color: var(--color-text-tertiary);
-  text-align: center;
-  font-size: 0.95rem;
-}
+.repo-empty { display: flex; flex-direction: column; align-items: center; margin: 0; padding: 2.5rem 1.5rem; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); text-align: center; }
+.repo-empty h2 { margin: 0; color: var(--color-text-primary); font-size: 1rem; }
+.repo-empty p { margin: .3rem 0 1rem; color: var(--color-text-tertiary); font-size: .82rem; }
 </style>

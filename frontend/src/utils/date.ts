@@ -17,7 +17,7 @@ export function formatTimestamp(value?: string | null) {
     return value;
   }
 
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' });
 }
 
 export function formatRelativeTime(value?: string | null, now: Date = new Date()) {
@@ -33,7 +33,7 @@ export function formatRelativeTime(value?: string | null, now: Date = new Date()
   const diff = date.getTime() - now.getTime();
   const absDiff = Math.abs(diff);
 
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'always' });
 
   for (const threshold of RELATIVE_THRESHOLDS) {
     if (absDiff >= threshold.limit) {

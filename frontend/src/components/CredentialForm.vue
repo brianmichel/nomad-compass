@@ -1,42 +1,44 @@
 <template>
   <form ref="formEl" class="credential-form" @submit.prevent="handleSubmit">
     <div class="form-grid">
-      <label class="field">
-        <span>Display name</span>
-        <input v-model="form.name" placeholder="production-github" required />
+      <label class="fieldset">
+        <span class="fieldset-legend">Display name</span>
+        <input v-model="form.name" class="input input-bordered w-full" placeholder="production-github" required />
       </label>
 
-      <label class="field">
-        <span>Type</span>
-        <select v-model="form.type">
+      <label class="fieldset">
+        <span class="fieldset-legend">Type</span>
+        <select v-model="form.type" class="select select-bordered w-full">
           <option value="https-token">HTTPS token</option>
           <option value="ssh-key">SSH key</option>
         </select>
       </label>
 
       <template v-if="form.type === 'https-token'">
-        <label class="field">
-          <span>Username <small>(optional)</small></span>
-          <input v-model="form.username" placeholder="git" />
+        <label class="fieldset">
+          <span class="fieldset-legend">Username <small>(optional)</small></span>
+          <input v-model="form.username" class="input input-bordered w-full" placeholder="git" autocomplete="username" />
         </label>
-        <label class="field full">
-          <span>Token</span>
-          <input v-model="form.token" placeholder="ghp_xxx" required />
+        <label class="fieldset full">
+          <span class="fieldset-legend">Token</span>
+          <input v-model="form.token" class="input input-bordered w-full" type="password" placeholder="ghp_xxx" autocomplete="new-password" required />
         </label>
       </template>
 
       <template v-else>
-        <label class="field full">
-          <span>Private key</span>
+        <label class="fieldset full">
+          <span class="fieldset-legend">Private key</span>
           <textarea
             v-model="form.private_key"
+            class="textarea textarea-bordered w-full"
             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            autocomplete="new-password"
             required
           ></textarea>
         </label>
-        <label class="field">
-          <span>Passphrase <small>(optional)</small></span>
-          <input v-model="form.passphrase" type="password" />
+        <label class="fieldset">
+          <span class="fieldset-legend">Passphrase <small>(optional)</small></span>
+          <input v-model="form.passphrase" class="input input-bordered w-full" type="password" autocomplete="new-password" />
         </label>
       </template>
     </div>
@@ -45,7 +47,6 @@
       Credentials are encrypted with your container key before leaving the browser.
     </p>
 
-    <button ref="submitButton" type="submit" class="visually-hidden">Submit</button>
   </form>
 </template>
 
@@ -57,7 +58,6 @@ const emit = defineEmits<{
 }>();
 
 const formEl = ref<HTMLFormElement | null>(null);
-const submitButton = ref<HTMLButtonElement | null>(null);
 
 const form = reactive({
   name: '',
@@ -82,11 +82,7 @@ function reset() {
 }
 
 function requestSubmit() {
-  if (formEl.value) {
-    formEl.value.requestSubmit();
-    return;
-  }
-  submitButton.value?.click();
+  formEl.value?.requestSubmit();
 }
 
 defineExpose({ reset, form, requestSubmit });
@@ -99,9 +95,10 @@ defineExpose({ reset, form, requestSubmit });
   gap: 1.25rem;
 }
 
-.credential-form :deep(textarea) {
-  min-height: 140px;
-}
+.credential-form :deep(textarea) { min-height: 140px; }
+.fieldset { min-width: 0; padding: 0; }
+.fieldset-legend { padding-bottom: .35rem; color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; }
+.fieldset-legend small { color: var(--color-text-tertiary); font-weight: 400; }
 
 .helper-text {
   margin: 0;
@@ -110,15 +107,4 @@ defineExpose({ reset, form, requestSubmit });
   line-height: 1.5;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 </style>

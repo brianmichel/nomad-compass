@@ -1,10 +1,10 @@
 <template>
   <div v-if="total > 0" class="jobs-summary">
     <div
-      class="bar-track"
-      role="presentation"
+      class="tooltip bar-track"
+      tabindex="0"
       :aria-label="tooltipText"
-      :data-tooltip="tooltipText"
+      :data-tip="tooltipText"
     >
       <div class="bar-track__segments">
         <div
@@ -32,8 +32,9 @@ import { getJobStatusClass } from '@/utils/jobStatus';
 const props = defineProps<{ jobs: RepoJob[] }>();
 
 const statusOrder = ['danger', 'warning', 'pending', 'healthy', 'unknown'] as const;
+type SummaryStatus = (typeof statusOrder)[number];
 
-const statusLabels: Record<(typeof statusOrder)[number], string> = {
+const statusLabels: Record<SummaryStatus, string> = {
   danger: 'Failing',
   warning: 'Degraded',
   pending: 'Pending',
@@ -42,9 +43,9 @@ const statusLabels: Record<(typeof statusOrder)[number], string> = {
 };
 
 const counts = computed(() =>
-  props.jobs.reduce<Record<(typeof statusOrder)[number], number>>((acc, job) => {
+  props.jobs.reduce<Record<SummaryStatus, number>>((acc, job) => {
     const status = getJobStatusClass(job);
-    const key = (statusOrder.includes(status as any) ? status : 'unknown') as (typeof statusOrder)[number];
+    const key = isSummaryStatus(status) ? status : 'unknown';
     acc[key] += 1;
     return acc;
   }, {
@@ -65,6 +66,10 @@ const segments = computed(() =>
     .map((type) => ({ type, count: counts.value[type] }))
     .filter((segment) => segment.count > 0),
 );
+
+function isSummaryStatus(value: string): value is SummaryStatus {
+  return statusOrder.some((status) => status === value);
+}
 
 const tooltipText = computed(() => {
   if (total.value === 0) {
@@ -121,49 +126,6 @@ const tooltipText = computed(() => {
 .bar-segment {
   height: 100%;
   min-width: 4px;
-}
-
-.bar-track::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translate(-50%, 6px);
-  padding: 0.35rem 0.55rem;
-  border-radius: var(--radius-sm);
-  background: rgba(15, 23, 42, 0.9);
-  color: #fff;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  box-shadow: 0 8px 18px -12px rgba(15, 23, 42, 0.6);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
-  z-index: 1;
-}
-
-.bar-track::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  border-width: 5px 5px 0 5px;
-  border-style: solid;
-  border-color: rgba(15, 23, 42, 0.9) transparent transparent transparent;
-  opacity: 0;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
-  z-index: 1;
-}
-
-.bar-track:hover::after,
-.bar-track:hover::before {
-  opacity: 1;
-}
-
-.bar-track:hover::after {
-  transform: translate(-50%, 0);
 }
 
 .bar-segment.healthy {

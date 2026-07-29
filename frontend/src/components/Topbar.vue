@@ -1,67 +1,46 @@
 <template>
-  <nav class="topbar" aria-label="Primary navigation">
-    <div class="topbar__inner">
-      <RouterLink to="/" class="brand" aria-label="Compass home">
-        <span class="brand-accent" aria-hidden="true"></span>
-        <span class="brand-title">Compass</span>
-      </RouterLink>
-      <div class="topbar-nav">
-        <RouterLink to="/" class="nav-link" active-class="active" exact-active-class="active">Dashboard</RouterLink>
-        <RouterLink to="/settings" class="nav-link" active-class="active">Settings</RouterLink>
+  <header class="app-header">
+    <nav class="navbar topbar" aria-label="Primary navigation">
+      <div class="navbar-start">
+        <RouterLink to="/" class="brand" aria-label="Compass home">
+          <IconCompass aria-hidden="true" />
+          <span>Compass</span>
+        </RouterLink>
       </div>
-    </div>
-  </nav>
+      <div class="navbar-end">
+        <ul class="menu menu-horizontal topbar-menu">
+          <li>
+            <RouterLink to="/" exact-active-class="menu-active">
+              <IconLayoutDashboard aria-hidden="true" />
+              <span>Repositories</span>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/settings" active-class="menu-active">
+              <IconSettings aria-hidden="true" />
+              <span>Settings</span>
+            </RouterLink>
+          </li>
+        </ul>
+      </div>
+    </nav>
+  </header>
 </template>
 
+<script setup lang="ts">
+import { IconCompass, IconLayoutDashboard, IconSettings } from '@tabler/icons-vue';
+</script>
+
 <style scoped>
-.topbar {
-  width: 100%;
-  min-height: 3.25rem;
-  background: linear-gradient(90deg, var(--color-brand-darker), var(--color-brand-dark));
-  color: #fff;
-  border-bottom: 1px solid rgba(22, 112, 77, 0.45);
-}
-
-.topbar__inner {
-  max-width: 1200px;
-  min-height: 3.25rem;
-  margin: 0 auto;
-  padding: 0 clamp(1rem, 3vw, 1.5rem);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  color: #fff;
-  text-decoration: none;
-}
-
-.brand:hover,
-.brand:focus-visible { color: #fff; text-decoration: none; }
-
-.brand-accent { width: 0.22rem; height: 1.35rem; border-radius: 1px; background: rgba(255, 255, 255, 0.9); }
-.brand-title { font-size: 0.95rem; font-weight: 700; letter-spacing: 0.01em; }
-.topbar-nav { display: flex; align-items: center; gap: 0.35rem; }
-.nav-link {
-  position: relative;
-  padding: 0.45rem 0.65rem;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-.nav-link:hover { color: #fff; background: rgba(22, 112, 77, 0.32); text-decoration: none; }
-.nav-link.active { color: #fff; }
-.nav-link.active::after { content: ""; position: absolute; right: 0.75rem; bottom: -0.95rem; left: 0.75rem; height: 3px; background: #fff; }
-
-@media (max-width: 640px) {
-  .topbar__inner { padding-inline: 1rem; }
-  .brand-title { font-size: 1rem; }
-  .nav-link { padding-inline: 0.55rem; }
-  .nav-link.active::after { right: 0.55rem; left: 0.55rem; }
-}
+.app-header { border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+.topbar { width: 100%; max-width: 1200px; min-height: 3.65rem; margin: 0 auto; padding: .45rem clamp(1rem, 3vw, 2rem); }
+.brand { display: inline-flex; align-items: center; gap: .55rem; color: var(--color-text-primary); font-size: .96rem; font-weight: 720; letter-spacing: -.015em; text-decoration: none; }
+.brand:hover { color: var(--color-text-primary); text-decoration: none; }
+.brand svg { width: 1.25rem; color: var(--color-brand-dark); stroke-width: 2; }
+.topbar-menu { gap: .2rem; padding: 0; }
+.topbar-menu a { min-height: 2.25rem; gap: .4rem; border-radius: var(--radius-field); color: var(--color-text-tertiary); font-size: .78rem; font-weight: 600; }
+.topbar-menu a:hover { background: var(--color-surface-muted); color: var(--color-text-primary); text-decoration: none; }
+.topbar-menu a.menu-active { background: var(--color-brand-light); color: var(--color-brand-darker); }
+.topbar-menu svg { width: .9rem; }
+@media (max-width: 520px) { .topbar-menu span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); } .topbar-menu a { padding-inline: .65rem; } }
 </style>

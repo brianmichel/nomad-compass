@@ -1,5 +1,5 @@
 <template>
-  <form :class="['repo-form', { 'repo-form--embedded': props.embedded }]" @submit.prevent="handleSubmit">
+  <form ref="formEl" :class="['repo-form', { 'repo-form--embedded': props.embedded }]" @submit.prevent="handleSubmit">
     <header v-if="!props.hideHeader" class="repo-form__header">
       <div>
         <h2>Add repository</h2>
@@ -7,44 +7,44 @@
       </div>
     </header>
     <div class="repo-form__grid">
-      <label class="field">
-        <span>Display name</span>
-        <input v-model="form.name" placeholder="payments" required />
+      <label class="fieldset">
+        <span class="fieldset-legend">Display name</span>
+        <input v-model="form.name" class="input input-bordered w-full" placeholder="payments" required />
       </label>
-      <label class="field span-2">
-        <span>Repository URL</span>
-        <input v-model="form.repo_url" placeholder="git@github.com:acme/payments.git" required />
+      <label class="fieldset span-2">
+        <span class="fieldset-legend">Repository URL</span>
+        <input v-model="form.repo_url" class="input input-bordered w-full" placeholder="git@github.com:acme/payments.git" required />
       </label>
-      <label class="field">
-        <span>Branch</span>
-        <input v-model="form.branch" placeholder="main" required />
+      <label class="fieldset">
+        <span class="fieldset-legend">Branch</span>
+        <input v-model="form.branch" class="input input-bordered w-full" placeholder="main" required />
       </label>
-      <label class="field">
-        <span>Credential</span>
-        <select v-model.number="form.credential_id">
+      <label class="fieldset">
+        <span class="fieldset-legend">Credential</span>
+        <select v-model.number="form.credential_id" class="select select-bordered w-full">
           <option :value="0">None (public)</option>
           <option v-for="cred in credentials" :value="cred.id" :key="cred.id">
             {{ cred.name }}
           </option>
         </select>
       </label>
-      <label class="field span-2">
-        <span>Job path</span>
-        <input v-model="form.job_path" placeholder=".nomad" required />
-        <small>Relative to the repository root. All <code>*.nomad</code> and <code>*.nomad.hcl</code> files inside will be tracked.</small>
+      <label class="fieldset span-2">
+        <span class="fieldset-legend">Job path</span>
+        <input v-model="form.job_path" class="input input-bordered w-full" placeholder=".nomad" required />
+        <span class="fieldset-label">Relative to the repository root. All <code>*.nomad</code> and <code>*.nomad.hcl</code> files inside will be tracked.</span>
       </label>
     </div>
-    <div class="repo-form__actions">
-      <button class="primary" type="submit" :disabled="saving">
-        <span v-if="saving" class="loader"></span>
-        <span v-else>Add repository</span>
+    <div v-if="!props.embedded" class="repo-form__actions">
+      <button class="btn btn-primary" type="submit" :disabled="saving">
+        <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+        {{ saving ? 'Adding repository' : 'Add repository' }}
       </button>
     </div>
   </form>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 import type { Credential, RepoPayload } from '@/types';
 
 const props = withDefaults(
@@ -59,6 +59,7 @@ const props = withDefaults(
     hideHeader: false,
   }
 );
+const formEl = ref<HTMLFormElement | null>(null);
 const emit = defineEmits<{
   (e: 'submit', payload: RepoPayload): void;
 }>();
@@ -81,6 +82,10 @@ function handleSubmit() {
   });
 }
 
+function requestSubmit(): void {
+  formEl.value?.requestSubmit();
+}
+
 function reset() {
   form.name = '';
   form.repo_url = '';
@@ -89,7 +94,7 @@ function reset() {
   form.credential_id = 0;
 }
 
-defineExpose({ reset, form });
+defineExpose({ reset, form, requestSubmit });
 </script>
 
 <style scoped>
@@ -132,9 +137,11 @@ defineExpose({ reset, form });
   gap: 0.9rem 1.1rem;
 }
 
-.span-2 {
-  grid-column: span 2;
-}
+.fieldset { min-width: 0; padding: 0; }
+.fieldset-legend { padding-bottom: .35rem; color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; }
+.fieldset-label { align-items: flex-start; padding-top: .35rem; color: var(--color-text-tertiary); font-size: .7rem; }
+.fieldset-label code { font-family: var(--font-mono); }
+.span-2 { grid-column: span 2; }
 
 @media (max-width: 640px) {
   .repo-form {
