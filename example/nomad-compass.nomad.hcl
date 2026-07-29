@@ -18,11 +18,6 @@ variable "nomad_addr" {
   default = "http://host.docker.internal:4646"
 }
 
-variable "nomad_token" {
-  type    = string
-  default = "<your_nomad_token_here>"
-}
-
 variable "credential_key" {
   type    = string
   default = "<replace_with_your_credential_key>"
@@ -60,6 +55,10 @@ job "compass" {
     task "app" {
       driver = "docker"
 
+      identity {
+        env = true
+      }
+
       config {
         image = var.image
         ports = ["http"]
@@ -70,9 +69,9 @@ job "compass" {
         COMPASS_DATABASE_PATH = "/data/nomad-compass.sqlite"
         COMPASS_REPO_BASE_DIR = "/data/repos"
         # For local testing make sure the Nomad address is resolvable from within your container.
-        # Ideally replace the below three environment variables with Nomad or Vault secrets.
+        # Keep the credential encryption key in Nomad Variables or another secrets backend in production.
+        # NOMAD_TOKEN is supplied by the task workload identity configured above.
         COMPASS_NOMAD_ADDR     = var.nomad_addr
-        COMPASS_NOMAD_TOKEN    = var.nomad_token
         COMPASS_CREDENTIAL_KEY = var.credential_key
       }
 

@@ -43,7 +43,8 @@ Nomad Compass is configured via environment variables:
 | `COMPASS_HTTP_ADDR` | HTTP listener address | `:8080` |
 | `COMPASS_DATABASE_PATH` | Path to SQLite database | `data/nomad-compass.sqlite` |
 | `COMPASS_NOMAD_ADDR` | Nomad API address | `http://127.0.0.1:4646` |
-| `COMPASS_NOMAD_TOKEN` | Nomad ACL token | _empty_ |
+| `COMPASS_NOMAD_TOKEN` | Explicit Nomad ACL token override (primarily for local/backward-compatible use) | falls back to `NOMAD_TOKEN` |
+| `NOMAD_TOKEN` | Nomad ACL token; automatically populated for tasks using Nomad Workload Identity with `identity { env = true }` | _empty_ |
 | `COMPASS_NOMAD_REGION` | Nomad region override | _empty_ |
 | `COMPASS_NOMAD_NAMESPACE` | Nomad namespace override | _empty_ |
 | `COMPASS_REPO_BASE_DIR` | Directory for cloned repositories | `data/repos` |
@@ -100,8 +101,7 @@ Run it in Nomad
 
 ```bash
 nomad run \
-  -var="nomad_token=token-goes-here" \
-  -var="credential_key=credential-key-goes-here" \
+  -var="credential_key=$(openssl rand -hex 32)" \
   example/nomad-compass.nomad.hcl
 ```
 
