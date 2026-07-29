@@ -88,22 +88,22 @@ const tooltipText = computed(() => {
 }
 
 .jobs-summary-empty {
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   color: var(--color-text-subtle);
   text-align: center;
 }
 
 .jobs-summary__count {
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   color: var(--color-text-secondary);
-  margin-left: 0.5rem;
+  margin-left: 0.4rem;
   text-align: right;
 }
 
 .bar-track {
   width: 100%;
-  height: 6px;
-  border-radius: 999px;
+  height: 5px;
+  border-radius: 2px;
   background: var(--color-surface-muted);
   position: relative;
   cursor: default;

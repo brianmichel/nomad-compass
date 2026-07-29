@@ -128,32 +128,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.app-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--color-bg);
-}
+.app-shell { min-height: 100vh; background: var(--color-bg); display: flex; flex-direction: column; }
+.content-frame { flex: 1; padding: clamp(1.5rem, 3vw, 2.25rem) clamp(1rem, 3vw, 2rem) 2.25rem; }
+.content-container { max-width: 1200px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+.app-footer { display: flex; justify-content: center; padding: .5rem 0 .75rem; border-top: 1px solid var(--color-border-soft); background: var(--color-surface); }
 
-.content-frame {
-  flex: 1;
-  padding: clamp(1.25rem, 3vw, 2.25rem);
-}
-
-.content-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(1.2rem, 2.5vw, 2rem);
-}
-
-.app-footer {
-  display: flex;
-  justify-content: center;
-  padding: 1rem 0;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
-  margin-top: auto;
-}
+@media (max-width: 640px) { .content-frame { padding: 1.5rem 1rem 2rem; } }
 </style>

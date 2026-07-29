@@ -217,7 +217,7 @@ function handleRowActivate() {
 }
 
 .job-cell-name {
-  min-width: 220px;
+  min-width: 190px;
 }
 
 .job-name-row {
@@ -230,7 +230,7 @@ function handleRowActivate() {
 .job-name {
   font-weight: 600;
   color: var(--color-text-primary);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   text-decoration: none;
 }
 
@@ -243,15 +243,15 @@ function handleRowActivate() {
 }
 
 .job-cell-status {
-  min-width: 120px;
+  min-width: 105px;
 }
 
 .job-cell-type {
-  min-width: 110px;
+  min-width: 95px;
 }
 
 .job-cell-namespace {
-  min-width: 110px;
+  min-width: 95px;
 }
 
 .job-type-chip {
@@ -273,7 +273,7 @@ function handleRowActivate() {
 }
 
 .job-cell-allocations {
-  min-width: 200px;
+  min-width: 180px;
   text-align: left;
 }
 
@@ -295,8 +295,8 @@ function handleRowActivate() {
   position: relative;
   flex: 1 1 auto;
   width: 100%;
-  height: 0.35rem;
-  border-radius: 999px;
+  height: 0.3rem;
+  border-radius: 2px;
   background: var(--color-surface-muted);
   overflow: hidden;
 }
@@ -344,9 +344,9 @@ function handleRowActivate() {
 }
 
 .job-status-badge {
-  font-size: 0.84rem;
-  padding: 0.26rem 0.4rem;
-  border-radius: 4px;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 3px;
   border: 1px solid var(--status-unknown-border);
   background: var(--status-unknown-bg);
   color: var(--status-unknown-text);

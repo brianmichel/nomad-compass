@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { demoApiPlugin } from './demoApi';
+
+const demoDataEnabled = process.env.COMPASS_DEMO_DATA === '1';
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), ...(demoDataEnabled ? [demoApiPlugin()] : [])],
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,

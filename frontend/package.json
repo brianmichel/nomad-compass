@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:demo": "COMPASS_DEMO_DATA=1 vite",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest"

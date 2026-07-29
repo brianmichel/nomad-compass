@@ -233,12 +233,12 @@ watch(
 
 .jobs-table th {
   text-align: left;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-  background-color: rgba(226, 232, 240, 0.6);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-muted);
 }
 
 .jobs-table th:last-child,
@@ -256,9 +256,8 @@ watch(
 
 thead th {
   text-align: left;
-  color: var(--color-text-secondary);
-  background-color: #f1f2f3;
-  border-right: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-muted);
 }
 
 thead th:last-child {

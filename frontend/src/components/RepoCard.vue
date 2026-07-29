@@ -88,7 +88,7 @@ function openDetails() {
 <style scoped>
 .repo-row td {
   vertical-align: middle;
-  padding: 0.75rem 0.9rem;
+  padding: 0.55rem 0.75rem;
 }
 
 .repo-row {
@@ -107,25 +107,25 @@ function openDetails() {
   display: inline-block;
   font-weight: 600;
   color: var(--color-text-primary);
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .cell-branch {
-  min-width: 120px;
+  min-width: 100px;
 }
 
 .branch-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.2rem 0.75rem;
+  padding: 0.15rem 0.55rem;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-border);
   background: var(--color-surface-muted);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-text-tertiary);
@@ -151,7 +151,7 @@ function openDetails() {
 }
 
 .cell-status {
-  min-width: 220px;
+  min-width: 190px;
 }
 
 :deep(.jobs-summary) {
@@ -167,7 +167,7 @@ function openDetails() {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.3rem;
   flex-wrap: wrap;
 }
 

@@ -2,11 +2,12 @@
   <section class="repo-table">
     <header class="repo-table__header">
       <div>
-        <h2>Repositories</h2>
-        <p>Git sources monitored for Nomad job definitions.</p>
+        <h1>Repositories</h1>
+        <p>Git sources monitored for Nomad job specifications.</p>
       </div>
       <button class="primary add-repo-header add-button" type="button" @click="$emit('add-repo')">
-        <span>Add</span>
+        <span aria-hidden="true">＋</span>
+        <span>Add repository</span>
       </button>
     </header>
 
@@ -62,7 +63,7 @@ const hasRepos = computed(() => props.repos.length > 0);
 .repo-table {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .repo-table__header {
@@ -70,54 +71,40 @@ const hasRepos = computed(() => props.repos.length > 0);
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
+  padding-bottom: 0.1rem;
 }
 
-.add-repo-header {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  padding: 0.45rem 1rem;
-  border-radius: var(--radius-md);
-  box-shadow: none;
-}
+.add-repo-header { flex-shrink: 0; box-shadow: none; }
+.add-button { line-height: 1; }
 
-.add-button {
-  font-weight: 400;
-  line-height: 1;
-}
-
-.repo-table__header h2 {
+.repo-table__header h1 {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: clamp(1.35rem, 3vw, 1.65rem);
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.02em;
   color: var(--color-text-primary);
 }
 
 .repo-table__header p {
-  margin: 0.2rem 0 0;
+  margin: 0.25rem 0 0;
   color: var(--color-text-tertiary);
-  font-size: 0.92rem;
+  font-size: 0.8125rem;
 }
 
 .repo-table__surface {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md) var(--radius-md);
-  overflow: hidden;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
   background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
 }
 
 .repo-table__surface table {
   width: 100%;
 }
 
-thead th {
-  text-align: left;
-  color: var(--color-text-secondary);
-  background-color: #f1f2f3;
-  border-right: 1px solid var(--color-border);
-}
+thead th { text-align: left; }
 
 thead th:last-child {
   border-right: none;
@@ -130,6 +117,10 @@ thead th:last-child {
 .actions-col,
 .repo-table__surface tbody tr:last-child td {
   border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .repo-table__header { align-items: flex-start; flex-direction: column; }
 }
 
 .repo-empty {

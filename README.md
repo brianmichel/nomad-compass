@@ -71,6 +71,14 @@ Nomad Compass is configured via environment variables:
 
    The Vite proxy forwards `/api` requests to the Go backend on port 8080.
 
+   For UI development without a backend or Nomad cluster, run the in-memory demo API instead:
+
+   ```bash
+   npm run dev:demo
+   ```
+
+   Demo mode includes repositories, credentials, commits, and jobs in healthy, pending, degraded, and failed states. Mutations remain in memory and reset when Vite restarts. Demo code is never included in the production bundle.
+
 3. Build the production bundle and run the Go binary:
 
     ```bash
