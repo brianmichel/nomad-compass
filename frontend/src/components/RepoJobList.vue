@@ -317,7 +317,7 @@ thead th:last-child {
   inset: auto 0 0;
   height: 64px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(242, 245, 250, 0.95) 100%);
+  background: linear-gradient(180deg, transparent 0%, var(--color-surface-muted) 100%);
 }
 
 

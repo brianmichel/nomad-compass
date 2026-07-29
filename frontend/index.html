@@ -3,6 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        try {
+          const savedTheme = localStorage.getItem('compass-theme');
+          const mode = savedTheme === 'light' || savedTheme === 'dark'
+            ? savedTheme
+            : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          document.documentElement.dataset.theme = mode === 'dark' ? 'nomad-mint-dark' : 'nomad-mint';
+          document.documentElement.style.colorScheme = mode;
+        } catch {
+          // DaisyUI's prefersdark theme remains the no-storage fallback.
+        }
+      })();
+    </script>
     <title>Compass</title>
   </head>
   <body>

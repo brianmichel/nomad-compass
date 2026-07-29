@@ -181,7 +181,7 @@ function capitalize(value: string) {
 }
 
 .repo-job-row:hover td {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--color-surface-muted);
 }
 
 
@@ -311,7 +311,7 @@ a.job-name:focus-visible svg {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border: 1px solid var(--color-border-soft);
   pointer-events: none;
 }
 
