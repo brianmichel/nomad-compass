@@ -9,8 +9,9 @@ Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single co
 - **Single container** – Vue-powered onboarding UI and Go backend served from the same binary.
 - **Secure credential storage** – HTTPS tokens and SSH keys encrypted with a symmetric key supplied via configuration.
 - **SQLite persistence** – Lightweight, zero-dependency database managed automatically.
-- **Git polling** – Uses `go-git` to clone, fetch, and track `.nomad/*.nomad.hcl` job files.
+- **Git polling** – Uses `go-git` to clone, fetch, and track `.nomad/*.nomad.hcl` job files or embedded `compass.bundle.hcl` manifests.
 - **Nomad integration** – Parses HCL jobspecs and registers them via the Nomad API with commit metadata attached.
+- **Embedded bundles** – A `compass.bundle.hcl` manifest can group native Nomad resource bodies with explicit dependencies; jobs, volumes, and ACL policies are reconciled as a bundle.
 - **Safe teardown** – Delete repositories or credentials from the UI and optionally purge their Nomad jobs.
 - **Extensive metadata** – Jobs are tagged with repository URL, commit SHA, author, and commit title for traceability.
 - **Well tested** – Core encryption, storage, reconciliation, and Git plumbing covered by unit tests.
@@ -116,6 +117,26 @@ nomad run \
 ```
 
 Mount `/data` or change `COMPASS_DATABASE_PATH`/`COMPASS_REPO_BASE_DIR` if you prefer persistent volumes.
+
+### Embedded bundle manifests
+
+Repositories may place a `compass.bundle.hcl` (or `compass.hcl`) file under the configured job path. The manifest embeds native Nomad HCL bodies and gives Compass a stable resource address:
+
+```hcl
+bundle "example" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+
+    group "api" {
+      task "server" {
+        driver = "docker"
+      }
+    }
+  }
+}
+```
+
+Resources can declare Compass-owned dependencies and deletion behavior with `depends_on` and `delete = "protect"`. Jobs, host/CSI volumes, and ACL policies are currently wired into reconciliation; the parser also reserves names for future resources such as namespaces, node pools, and quotas. Volume resources require the matching host-volume or CSI ACL capabilities, and ACL policy resources require a management-capable bootstrap token. See `example/homelab-compass.bundle.hcl` for a real homelab-shaped example.
 
 ### Repository onboarding workflow
 

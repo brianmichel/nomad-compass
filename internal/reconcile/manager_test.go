@@ -6,10 +6,13 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/nomad/api"
 
+	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	repomodel "github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
@@ -28,6 +31,131 @@ func TestParseJob(t *testing.T) {
 	}
 	if submission.Source == "" || submission.Format != "hcl2" {
 		t.Fatalf("unexpected submission: %#v", submission)
+	}
+}
+
+func TestSnapshotJobFilesUsesEmbeddedBundle(t *testing.T) {
+	bundle, err := manifest.Parse([]byte(`bundle "demo" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+
+	files, err := snapshotJobFiles(&repomodel.Snapshot{Bundle: bundle})
+	if err != nil {
+		t.Fatalf("build bundle job files: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected one embedded job, got %d", len(files))
+	}
+	if files[0].Path != ".nomad/compass.bundle.hcl#job.api" {
+		t.Fatalf("unexpected embedded job path %q", files[0].Path)
+	}
+	job, _, err := parseJob(files[0].Path, files[0].Content)
+	if err != nil {
+		t.Fatalf("parse embedded job: %v", err)
+	}
+	if job.Name == nil || *job.Name != "api" {
+		t.Fatalf("unexpected embedded job: %#v", job)
+	}
+}
+
+func TestEnsureBundleAppliesResourcesInDependencyOrder(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "bundle.sqlite"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+	managedStore := storage.NewManagedResourceStore(db)
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "bundle",
+		RepoURL: "https://example.com/bundle.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    delete = "protect"
+    name = "compass-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+  resource "acl_policy" "compass" {
+    delete = "protect"
+    rules {
+      namespace "default" {
+        capabilities = ["read-job", "submit-job"]
+      }
+    }
+  }
+  resource "job" "compass" {
+    depends_on = ["volume.data", "acl_policy.compass"]
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+
+	fake := &fakeNomad{}
+	manager := &Manager{
+		files:   fileStore,
+		managed: managedStore,
+		nomad:   fake,
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{
+		CommitHash: "commit-1",
+		Bundle:     bundle,
+	}, true); err != nil {
+		t.Fatalf("ensure bundle: %v", err)
+	}
+
+	wantCalls := []string{"volume:compass-data", "policy:compass", "job:compass"}
+	if !reflect.DeepEqual(fake.resourceCalls, wantCalls) {
+		t.Fatalf("resource calls = %v, want %v", fake.resourceCalls, wantCalls)
+	}
+	tracked, err := managedStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list managed resources: %v", err)
+	}
+	if len(tracked) != 2 {
+		t.Fatalf("expected two non-job resources tracked, got %d", len(tracked))
+	}
+
+	remainingBundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "compass" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse remaining bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{
+		CommitHash: "commit-2",
+		Bundle:     remainingBundle,
+	}, true); err != nil {
+		t.Fatalf("ensure remaining bundle: %v", err)
+	}
+	if slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") || slices.Contains(fake.resourceCalls, "delete-policy:compass") {
+		t.Fatalf("protected resources were deleted: %v", fake.resourceCalls)
 	}
 }
 
@@ -635,6 +763,9 @@ type fakeNomad struct {
 	planCalls        int
 	jobStatusErr     error
 	jobStatuses      map[string]*nomadclient.JobStatus
+	hostVolume       *api.HostVolume
+	aclPolicy        *api.ACLPolicy
+	resourceCalls    []string
 }
 
 func strPtr(s string) *string {
@@ -642,6 +773,7 @@ func strPtr(s string) *string {
 }
 
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
+	f.resourceCalls = append(f.resourceCalls, "job:"+jobID(job))
 	f.lastJob = job
 	f.lastSubmission = submission
 	if id := jobID(job); id != "" {
@@ -688,6 +820,61 @@ func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.Job
 		Status: "running",
 		Exists: true,
 	}, nil
+}
+
+func (f *fakeNomad) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (*api.HostVolume, error) {
+	f.resourceCalls = append(f.resourceCalls, "volume:"+volume.Name)
+	copy := *volume
+	if copy.ID == "" {
+		copy.ID = "host-volume-id"
+	}
+	f.hostVolume = &copy
+	return &copy, nil
+}
+
+func (f *fakeNomad) ObserveHostVolume(_ context.Context, id, _ string) (*api.HostVolume, error) {
+	if f.hostVolume == nil || f.hostVolume.ID != id {
+		return nil, nil
+	}
+	return f.hostVolume, nil
+}
+
+func (f *fakeNomad) DeleteHostVolume(_ context.Context, id, _ string, _ bool) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-volume:"+id)
+	f.hostVolume = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplyCSIVolume(_ context.Context, volume *api.CSIVolume) (*api.CSIVolume, error) {
+	return volume, nil
+}
+
+func (f *fakeNomad) ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error) {
+	return nil, nil
+}
+
+func (f *fakeNomad) DeleteCSIVolume(context.Context, string, string, bool) error {
+	return nil
+}
+
+func (f *fakeNomad) ApplyACLPolicy(_ context.Context, policy *api.ACLPolicy) error {
+	f.resourceCalls = append(f.resourceCalls, "policy:"+policy.Name)
+	copy := *policy
+	f.aclPolicy = &copy
+	return nil
+}
+
+func (f *fakeNomad) ObserveACLPolicy(_ context.Context, name string) (*api.ACLPolicy, error) {
+	if f.aclPolicy == nil || f.aclPolicy.Name != name {
+		return nil, nil
+	}
+	return f.aclPolicy, nil
+}
+
+func (f *fakeNomad) DeleteACLPolicy(_ context.Context, name string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-policy:"+name)
+	f.aclPolicy = nil
+	return nil
 }
 
 func (f *fakeNomad) PlanJob(_ context.Context, job *api.Job) (*api.JobPlanResponse, error) {

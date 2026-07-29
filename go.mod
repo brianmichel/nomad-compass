@@ -7,8 +7,11 @@ toolchain go1.24.8
 require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-git/go-git/v5 v5.16.3
+	github.com/hashicorp/hcl v1.0.1-vault-7
+	github.com/hashicorp/hcl/v2 v2.20.2-nomad-1
 	github.com/hashicorp/nomad v1.10.5
 	github.com/hashicorp/nomad/api v0.0.0-20251006133510-26485c45a2fb
+	github.com/mitchellh/mapstructure v1.5.0
 	golang.org/x/crypto v0.42.0
 	modernc.org/sqlite v1.39.0
 )
@@ -37,13 +40,11 @@ require (
 	github.com/hashicorp/go-cty-funcs v0.0.0-20200930094925-2721b1e36840 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-rootcerts v1.0.2 // indirect
-	github.com/hashicorp/hcl/v2 v2.20.2-nomad-1 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect

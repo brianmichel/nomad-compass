@@ -26,3 +26,7 @@ depends = ["frontend-install"]
 
 [tasks.backend-dev]
 run = "go run ./cmd/nomad-compass"
+
+[tasks.e2e-local]
+description = "Run Compass against an isolated local Nomad agent using Lima Docker"
+run = "./scripts/e2e-local.sh"

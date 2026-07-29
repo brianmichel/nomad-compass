@@ -16,6 +16,7 @@ import (
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
 
@@ -31,13 +32,15 @@ type Snapshot struct {
 	CommitAuthor string
 	CommitTitle  string
 	JobFiles     []JobFile
+	Bundle       *manifest.Bundle
 }
 
 // JobFile captures a job file discovered within the repo.
 type JobFile struct {
-	Path     string
-	FullPath string
-	Content  []byte
+	Path       string
+	FullPath   string
+	Content    []byte
+	DeleteMode string
 }
 
 // NewManager constructs a repository manager with a base directory.
@@ -114,6 +117,30 @@ func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential 
 	if jobPath == "" {
 		jobPath = ".nomad"
 	}
+	if bundlePath, found, err := discoverBundlePath(repoPath, jobPath); err != nil {
+		return nil, err
+	} else if found {
+		contents, err := os.ReadFile(bundlePath)
+		if err != nil {
+			return nil, err
+		}
+		manifestPath, err := filepath.Rel(repoPath, bundlePath)
+		if err != nil {
+			manifestPath = bundlePath
+		}
+		bundle, err := manifest.Parse(contents, manifestPath)
+		if err != nil {
+			return nil, err
+		}
+		return &Snapshot{
+			RepoPath:     repoPath,
+			CommitHash:   hash,
+			CommitAuthor: author,
+			CommitTitle:  title,
+			Bundle:       bundle,
+		}, nil
+	}
+
 	jobFiles, err := discoverJobFiles(repoPath, jobPath)
 	if err != nil {
 		return nil, err
@@ -149,6 +176,41 @@ func headMetadata(gitRepo *gogit.Repository) (hash string, author string, title 
 		titleLine = commit.Message[:idx]
 	}
 	return ref.Hash().String(), fmt.Sprintf("%s <%s>", commit.Author.Name, commit.Author.Email), titleLine, nil
+}
+
+func discoverBundlePath(repoPath string, jobPath string) (string, bool, error) {
+	searchRoot := jobPath
+	if searchRoot == "" {
+		searchRoot = ".nomad"
+	}
+	if !filepath.IsAbs(searchRoot) {
+		searchRoot = filepath.Join(repoPath, searchRoot)
+	}
+	if info, err := os.Stat(searchRoot); err == nil && !info.IsDir() {
+		searchRoot = filepath.Dir(searchRoot)
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", false, err
+	}
+
+	var found string
+	for _, name := range []string{"compass.bundle.hcl", "compass.hcl"} {
+		candidate := filepath.Join(searchRoot, name)
+		info, err := os.Stat(candidate)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if info.IsDir() {
+			return "", false, fmt.Errorf("bundle manifest path is a directory: %s", candidate)
+		}
+		if found != "" {
+			return "", false, fmt.Errorf("multiple bundle manifests found: %s and %s", found, candidate)
+		}
+		found = candidate
+	}
+	return found, found != "", nil
 }
 
 func discoverJobFiles(repoPath string, jobPath string) ([]JobFile, error) {

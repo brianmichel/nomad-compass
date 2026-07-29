@@ -63,11 +63,31 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             last_commit TEXT,
             updated_at TIMESTAMP NOT NULL,
             job_id TEXT,
+            delete_mode TEXT NOT NULL DEFAULT 'allow',
             UNIQUE(repo_id, path),
+            FOREIGN KEY(repo_id) REFERENCES repos(id)
+        )`,
+		`CREATE TABLE IF NOT EXISTS managed_resources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL,
+            address TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            source_path TEXT,
+            nomad_id TEXT,
+            namespace TEXT,
+            content_hash TEXT,
+            last_commit TEXT,
+            status TEXT NOT NULL,
+            last_error TEXT,
+            delete_mode TEXT NOT NULL DEFAULT 'protect',
+            subtype TEXT,
+            updated_at TIMESTAMP NOT NULL,
+            UNIQUE(repo_id, address),
             FOREIGN KEY(repo_id) REFERENCES repos(id)
         )`,
 		`ALTER TABLE repos ADD COLUMN job_path TEXT NOT NULL DEFAULT '.nomad'`,
 		`ALTER TABLE repo_files ADD COLUMN job_id TEXT`,
+		`ALTER TABLE repo_files ADD COLUMN delete_mode TEXT NOT NULL DEFAULT 'allow'`,
 	}
 
 	for _, stmt := range stmts {
