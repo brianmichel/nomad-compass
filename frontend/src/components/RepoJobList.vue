@@ -17,7 +17,7 @@
         <span class="jobs-count">{{ jobs.length }} total</span>
       </header>
       <div class="jobs-table-wrapper">
-        <table class="jobs-table" :class="{ compact: isCompact }">
+        <table class="table table-sm jobs-table" :class="{ compact: isCompact }">
           <thead>
             <tr>
               <th scope="col">Job</th>
@@ -166,7 +166,7 @@ watch(
   flex-direction: column;
   gap: 0.35rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-box);
   background: var(--color-surface);
 }
 
@@ -216,18 +216,19 @@ watch(
 
 .jobs-table {
   width: 100%;
+  --table-cell-padding: 0.45rem 0.65rem;
   border-collapse: collapse;
   min-width: 560px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .jobs-table th {
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border-bottom: 1px solid var(--color-border-soft);
 }
 
 .jobs-table :deep(td) {
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border-bottom: 1px solid var(--color-border-soft);
 }
 

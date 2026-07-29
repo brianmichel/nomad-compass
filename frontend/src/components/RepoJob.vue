@@ -17,7 +17,7 @@
       <div class="job-path">{{ job.path }}</div>
     </td>
     <td class="job-cell job-cell-status" :data-label="compact ? 'Status' : null">
-      <span class="job-status-badge" :class="statusClass" :title="statusTooltip">
+      <span class="badge badge-sm job-status-badge" :class="statusBadgeClass" :title="statusTooltip">
         {{ statusLabel }}
       </span>
     </td>
@@ -67,6 +67,13 @@ const jobName = computed(() => props.job.job_name || props.job.job_id || props.j
 const statusClass = computed(() => getJobStatusClass(props.job));
 const statusLabel = computed(() => getJobStatusLabel(props.job));
 const statusTooltip = computed(() => getJobStatusTooltip(props.job));
+const statusBadgeClass = computed(() => {
+  if (statusClass.value === 'healthy') return 'badge-success';
+  if (statusClass.value === 'pending') return 'badge-ghost';
+  if (statusClass.value === 'warning') return 'badge-warning';
+  if (statusClass.value === 'danger') return 'badge-error';
+  return 'badge-neutral';
+});
 const jobType = computed(() => (props.job.job_type || '').toLowerCase());
 const jobTypeDisplay = computed(() => (jobType.value ? capitalize(jobType.value) : null));
 const jobNamespace = computed(() => resolveNamespace(props.job));
@@ -344,44 +351,12 @@ function handleRowActivate() {
 }
 
 .job-status-badge {
-  font-size: 0.75rem;
-  padding: 0.2rem 0.35rem;
-  border-radius: 3px;
-  border: 1px solid var(--status-unknown-border);
-  background: var(--status-unknown-bg);
-  color: var(--status-unknown-text);
+  min-height: 1.35rem;
+  padding-inline: .4rem;
+  border-width: 1px;
+  font-size: .7rem;
   font-weight: 600;
   white-space: nowrap;
-}
-
-.job-status-badge.healthy {
-  background: var(--status-healthy-bg);
-  border-color: var(--status-healthy-border);
-  color: var(--status-healthy-text);
-}
-
-.job-status-badge.pending {
-  background: var(--status-pending-bg);
-  border-color: var(--status-pending-border);
-  color: var(--status-pending-text);
-}
-
-.job-status-badge.warning {
-  background: var(--status-warning-bg);
-  border-color: var(--status-warning-border);
-  color: var(--status-warning-text);
-}
-
-.job-status-badge.danger {
-  background: var(--status-danger-bg);
-  border-color: var(--status-danger-border);
-  color: var(--status-danger-text);
-}
-
-.job-status-badge.unknown {
-  background: var(--status-unknown-bg);
-  border-color: var(--status-unknown-border);
-  color: var(--status-unknown-text);
 }
 
 @media (max-width: 720px) {

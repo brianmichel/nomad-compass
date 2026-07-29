@@ -1,73 +1,72 @@
 <template>
   <div class="repo-detail" v-if="repo">
-    <header class="repo-detail__header">
-      <button class="ghost small" type="button" @click="goBack">
-        ← Back
+    <header class="repo-detail__toolbar">
+      <button class="btn btn-ghost btn-sm detail-back" type="button" @click="goBack">
+        <span aria-hidden="true">←</span> Repositories
       </button>
       <div class="repo-detail__actions">
-        <button
-          class="ghost small"
-          type="button"
-          @click="handleReconcile"
-          :disabled="isSyncing"
-        >
-          <span v-if="isSyncing" class="loader"></span>
+        <button class="btn btn-outline btn-sm" type="button" @click="handleReconcile" :disabled="isSyncing">
+          <span v-if="isSyncing" class="loading loading-spinner loading-xs"></span>
           <span v-else>Sync</span>
         </button>
-        <button
-          class="ghost danger small"
-          type="button"
-          @click="handleDelete"
-          :disabled="isDeleting"
-        >
-          <span v-if="isDeleting" class="loader"></span>
+        <button class="btn btn-error btn-outline btn-sm" type="button" @click="handleDelete" :disabled="isDeleting">
+          <span v-if="isDeleting" class="loading loading-spinner loading-xs"></span>
           <span v-else>Delete</span>
         </button>
       </div>
     </header>
 
-    <section class="repo-detail__summary">
+    <section class="repo-detail__hero">
       <div class="repo-detail__identity">
+        <span class="detail-kicker">Repository</span>
         <h1>{{ repo.name }}</h1>
-        <div class="repo-detail__location">
-          <a
-            v-if="repo.repo_url"
-            :href="repo.repo_url"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ repo.repo_url }}
-          </a>
-          <span v-else>—</span>
-        </div>
+        <a v-if="repo.repo_url" class="repo-detail__location" :href="repo.repo_url" target="_blank" rel="noopener noreferrer">
+          {{ repo.repo_url }} <span aria-hidden="true">↗</span>
+        </a>
+        <span v-else class="repo-detail__location">—</span>
       </div>
       <RepoPollingInfo class="repo-detail__commit" :repo="repo" />
     </section>
 
-    <section class="repo-detail__meta">
-      <dl>
-        <div>
-          <dt>Credential</dt>
-          <dd>{{ credentialLabel }}</dd>
-        </div>
-        <div>
-          <dt>Namespace</dt>
-          <dd>{{ repo.nomad_namespace || '—' }}</dd>
-        </div>
-        <div>
-          <dt>Job path</dt>
-          <dd>{{ repo.job_path || '—' }}</dd>
-        </div>
-      </dl>
+    <div class="tabs tabs-border detail-tabs" role="tablist" aria-label="Repository details">
+      <a class="tab tab-active" role="tab" aria-selected="true">Overview</a>
+      <a class="tab" role="tab">Jobs <span class="badge badge-ghost badge-sm">{{ repo.jobs?.length || 0 }}</span></a>
+      <a class="tab" role="tab">Configuration</a>
+    </div>
+
+    <section class="repo-detail__facts" aria-label="Repository configuration">
+      <div class="detail-fact">
+        <span>Credential</span>
+        <strong>{{ credentialLabel }}</strong>
+      </div>
+      <div class="detail-fact">
+        <span>Namespace</span>
+        <strong>{{ repo.nomad_namespace || '—' }}</strong>
+      </div>
+      <div class="detail-fact">
+        <span>Job path</span>
+        <strong class="font-mono">{{ repo.job_path || '—' }}</strong>
+      </div>
+      <div class="detail-fact">
+        <span>Branch</span>
+        <strong>{{ repo.branch || '—' }}</strong>
+      </div>
     </section>
 
-    <section class="repo-detail__jobs">
+    <section class="repo-detail__jobs" aria-labelledby="jobs-heading">
+      <div class="jobs-section-heading">
+        <div>
+          <h2 id="jobs-heading">Jobs</h2>
+          <p>Nomad jobs discovered from this repository.</p>
+        </div>
+        <span class="badge badge-ghost badge-sm">{{ repo.jobs?.length || 0 }} tracked</span>
+      </div>
       <RepoJobList :jobs="repo.jobs || []" :enable-collapse="false" :show-header="false" />
     </section>
   </div>
   <div v-else class="repo-detail__empty">
     <p>Repository not found.</p>
-    <button class="primary small" type="button" @click="goBack">
+    <button class="btn btn-primary btn-sm" type="button" @click="goBack">
       Return to repositories
     </button>
   </div>
@@ -161,134 +160,47 @@ async function handleDelete() {
 </script>
 
 <style scoped>
-.repo-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.repo-detail__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.repo-detail__actions {
-  display: flex;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-}
-
-.repo-detail__summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 1.5rem;
-  align-items: top;
-  flex-wrap: wrap;
-}
-
-.repo-detail__identity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  min-width: 220px;
-}
-
-.repo-detail__identity h1 {
-  margin: 0;
-  font-size: 1.45rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.repo-detail__location a {
-  color: var(--color-accent);
-}
-
-.repo-detail__location a:hover,
-.repo-detail__location a:focus-visible {
-  color: var(--color-accent-hover);
-}
-
-.repo-detail__meta {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  padding: 0.75rem 1rem;
-  margin: 0;
-}
-
-.repo-detail__meta dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.75rem 1.5rem;
-}
-
-.repo-detail__meta div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.repo-detail__meta dt {
-  margin: 0;
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-}
-
-.repo-detail__meta dd {
-  margin: 0;
-  font-size: 0.86rem;
-  color: var(--color-text-secondary);
-}
-
-.repo-detail__commit {
-  min-width: 260px;
-}
-
-.repo-detail__jobs {
-  margin-top: 1rem;
-}
-
-.repo-detail__jobs .repo-jobs {
-  width: 100%;
-}
-
-.repo-detail__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.8rem;
-  padding: 2rem 1.5rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  color: var(--color-text-secondary);
-}
+.repo-detail { display: flex; flex-direction: column; gap: 1rem; }
+.repo-detail__toolbar, .repo-detail__actions, .repo-detail__hero, .jobs-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.repo-detail__toolbar { min-height: 2rem; }
+.repo-detail__actions { justify-content: flex-end; }
+.detail-back { padding-inline: .25rem; color: var(--color-text-tertiary); }
+.detail-back:hover { color: var(--color-accent); }
+.repo-detail__hero { align-items: flex-end; gap: 2rem; padding: .5rem 0 .25rem; }
+.repo-detail__identity { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; }
+.detail-kicker { color: var(--color-text-tertiary); font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.repo-detail__identity h1 { margin: 0; color: var(--color-text-primary); font-size: 1.6rem; line-height: 1.15; font-weight: 650; letter-spacing: -.02em; }
+.repo-detail__location { max-width: min(58rem, 100%); overflow: hidden; color: var(--color-accent); font-family: var(--font-mono); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+a.repo-detail__location:hover { color: var(--color-accent-hover); }
+.repo-detail__commit { min-width: min(24rem, 100%); }
+.detail-tabs { min-height: 2.35rem; margin-top: .25rem; border-bottom: 1px solid var(--color-border); }
+.detail-tabs .tab { min-height: 2.35rem; height: 2.35rem; padding: 0 .75rem; gap: .4rem; color: var(--color-text-tertiary); font-size: .75rem; }
+.detail-tabs .tab-active { color: var(--color-accent); }
+.detail-tabs .badge { font-size: .65rem; }
+.repo-detail__facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--color-border); background: var(--color-surface); }
+.detail-fact { min-width: 0; padding: .65rem .8rem; border-right: 1px solid var(--color-border); }
+.detail-fact:last-child { border-right: 0; }
+.detail-fact span { display: block; margin-bottom: .2rem; color: var(--color-text-tertiary); font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.detail-fact strong { display: block; overflow: hidden; color: var(--color-text-secondary); font-size: .8rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.jobs-section-heading { align-items: flex-end; padding-top: .5rem; }
+.jobs-section-heading h2 { margin: 0; color: var(--color-text-primary); font-size: 1rem; font-weight: 650; }
+.jobs-section-heading p { margin: .15rem 0 0; color: var(--color-text-tertiary); font-size: .75rem; }
+.repo-detail__jobs .repo-jobs { width: 100%; margin-top: .15rem; }
+.repo-detail__empty { display: flex; flex-direction: column; align-items: flex-start; gap: .65rem; padding: 1.5rem; border: 1px dashed var(--color-border); background: var(--color-surface-muted); color: var(--color-text-secondary); }
 
 @media (max-width: 840px) {
-  .repo-detail__summary {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .repo-detail__commit {
-    width: 100%;
-  }
+  .repo-detail__hero { align-items: stretch; flex-direction: column; gap: 1rem; }
+  .repo-detail__commit { width: 100%; }
+  .repo-detail__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .detail-fact:nth-child(2) { border-right: 0; }
+  .detail-fact:nth-child(-n + 2) { border-bottom: 1px solid var(--color-border); }
 }
-
 @media (max-width: 640px) {
-  .repo-detail__header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .repo-detail__actions {
-    justify-content: flex-start;
-  }
+  .repo-detail__toolbar { align-items: flex-start; flex-direction: column; }
+  .repo-detail__actions { width: 100%; justify-content: flex-start; }
+  .repo-detail__facts { grid-template-columns: 1fr; }
+  .detail-fact, .detail-fact:nth-child(2) { border-right: 0; border-bottom: 1px solid var(--color-border); }
+  .detail-fact:last-child { border-bottom: 0; }
+  .detail-tabs { overflow-x: auto; }
 }
 </style>
