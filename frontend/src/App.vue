@@ -8,9 +8,6 @@
         </router-view>
       </div>
     </main>
-    <footer class="app-footer" v-if="status">
-      <StatusBadge :connected="status.nomad_connected" :message="status.nomad_message" variant="footer" />
-    </footer>
     <ToastMessage v-if="error" :message="error" @dismiss="clearError" />
     <ModalDialog
       :open="showRepoModal"
@@ -26,6 +23,13 @@
         hide-header
         @submit="handleRepoSubmit"
       />
+      <template #footer>
+        <button class="btn btn-ghost" type="button" @click="closeRepoModal" :disabled="savingRepo">Cancel</button>
+        <button class="btn btn-primary" type="button" @click="repoFormRef?.requestSubmit()" :disabled="savingRepo">
+          <span v-if="savingRepo" class="loading loading-spinner loading-xs"></span>
+          {{ savingRepo ? 'Adding repository' : 'Add repository' }}
+        </button>
+      </template>
     </ModalDialog>
   </div>
 </template>
@@ -36,7 +40,6 @@ import ModalDialog from '@/components/ModalDialog.vue';
 import Topbar from '@/components/Topbar.vue';
 import ToastMessage from '@/components/ToastMessage.vue';
 import RepoForm from '@/components/RepoForm.vue';
-import StatusBadge from '@/components/StatusBadge.vue';
 import { useCompassStore } from '@/composables/useCompassStore';
 import type { RepoPayload } from '@/types';
 
@@ -44,7 +47,6 @@ const {
   refreshAll,
   error,
   clearError,
-  status,
   credentials,
   loadRepos,
   savingRepo,
@@ -89,6 +91,7 @@ async function handleRepoSubmit(payload: RepoPayload) {
 }
 
 function closeRepoModal() {
+  if (savingRepo.value) return;
   showRepoModal.value = false;
   repoFormRef.value?.reset();
 }
@@ -128,32 +131,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.app-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--color-bg);
-}
-
-.content-frame {
-  flex: 1;
-  padding: clamp(1.25rem, 3vw, 2.25rem);
-}
-
-.content-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(1.2rem, 2.5vw, 2rem);
-}
-
-.app-footer {
-  display: flex;
-  justify-content: center;
-  padding: 1rem 0;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
-  margin-top: auto;
-}
+.app-shell { min-height: 100vh; background: var(--color-bg); display: flex; flex-direction: column; }
+.content-frame { flex: 1; padding: clamp(1.5rem, 3vw, 2.25rem) clamp(1rem, 3vw, 2rem) 2.25rem; }
+.content-container { max-width: 1200px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+@media (max-width: 640px) { .content-frame { padding: 1.5rem 1rem 2rem; } }
 </style>

@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import tailwindcss from '@tailwindcss/vite';
+import { demoApiPlugin } from './demoApi';
+
+const demoDataEnabled = process.env.COMPASS_DEMO_DATA === '1';
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [tailwindcss(), vue(), ...(demoDataEnabled ? [demoApiPlugin()] : [])],
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,

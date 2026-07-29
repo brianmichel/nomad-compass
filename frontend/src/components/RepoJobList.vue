@@ -17,7 +17,7 @@
         <span class="jobs-count">{{ jobs.length }} total</span>
       </header>
       <div class="jobs-table-wrapper">
-        <table class="jobs-table" :class="{ compact: isCompact }">
+        <table class="table table-sm jobs-table" :class="{ compact: isCompact }">
           <thead>
             <tr>
               <th scope="col">Job</th>
@@ -166,7 +166,7 @@ watch(
   flex-direction: column;
   gap: 0.35rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-box);
   background: var(--color-surface);
 }
 
@@ -216,29 +216,30 @@ watch(
 
 .jobs-table {
   width: 100%;
+  --table-cell-padding: 0.45rem 0.65rem;
   border-collapse: collapse;
   min-width: 560px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .jobs-table th {
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border-bottom: 1px solid var(--color-border-soft);
 }
 
 .jobs-table :deep(td) {
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border-bottom: 1px solid var(--color-border-soft);
 }
 
 .jobs-table th {
   text-align: left;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-  background-color: rgba(226, 232, 240, 0.6);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-muted);
 }
 
 .jobs-table th:last-child,
@@ -256,9 +257,8 @@ watch(
 
 thead th {
   text-align: left;
-  color: var(--color-text-secondary);
-  background-color: #f1f2f3;
-  border-right: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-muted);
 }
 
 thead th:last-child {
@@ -317,7 +317,7 @@ thead th:last-child {
   inset: auto 0 0;
   height: 64px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(242, 245, 250, 0.95) 100%);
+  background: linear-gradient(180deg, transparent 0%, var(--color-surface-muted) 100%);
 }
 
 

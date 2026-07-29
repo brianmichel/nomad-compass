@@ -28,3 +28,5 @@ dist/
 # Misc
 .env
 data/
+
+.DS_Store
