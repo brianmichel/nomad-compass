@@ -67,7 +67,7 @@ func Load() (*Config, error) {
 
 	cfg.Nomad = NomadConfig{
 		Address:   getEnv("COMPASS_NOMAD_ADDR", defaultNomadAddress),
-		Token:     os.Getenv("COMPASS_NOMAD_TOKEN"),
+		Token:     getEnv("COMPASS_NOMAD_TOKEN", os.Getenv("NOMAD_TOKEN")),
 		Region:    getEnv("COMPASS_NOMAD_REGION", ""),
 		Namespace: getEnv("COMPASS_NOMAD_NAMESPACE", ""),
 	}

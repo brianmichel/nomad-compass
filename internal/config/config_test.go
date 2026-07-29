@@ -29,6 +29,8 @@ func TestDecodeHexKeyInvalidLength(t *testing.T) {
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("COMPASS_CREDENTIAL_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("COMPASS_NOMAD_TOKEN", "")
+	t.Setenv("NOMAD_TOKEN", "")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -50,6 +52,48 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if len(cfg.Crypto.CredentialKey) != 32 {
 		t.Fatalf("expected 32 byte key, got %d", len(cfg.Crypto.CredentialKey))
+	}
+}
+
+func TestLoadNomadTokenExplicitOverride(t *testing.T) {
+	t.Setenv("COMPASS_CREDENTIAL_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("COMPASS_NOMAD_TOKEN", "explicit-token")
+	t.Setenv("NOMAD_TOKEN", "workload-identity-token")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Nomad.Token != "explicit-token" {
+		t.Fatal("expected COMPASS_NOMAD_TOKEN to take precedence")
+	}
+}
+
+func TestLoadNomadTokenWorkloadIdentityFallback(t *testing.T) {
+	t.Setenv("COMPASS_CREDENTIAL_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("COMPASS_NOMAD_TOKEN", "")
+	t.Setenv("NOMAD_TOKEN", "workload-identity-token")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Nomad.Token != "workload-identity-token" {
+		t.Fatal("expected NOMAD_TOKEN fallback")
+	}
+}
+
+func TestLoadNomadTokenEmpty(t *testing.T) {
+	t.Setenv("COMPASS_CREDENTIAL_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("COMPASS_NOMAD_TOKEN", "")
+	t.Setenv("NOMAD_TOKEN", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Nomad.Token != "" {
+		t.Fatal("expected an empty Nomad token")
 	}
 }
 
