@@ -21,9 +21,9 @@ Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single co
 
 ![Nomad Compass repository overview in the light theme](images/compass-repos.png)
 
-### Repository detail — dark theme
+### Monitored jobs — dark theme
 
-![Nomad Compass repository detail with monitored jobs in the dark theme](images/compass-repo-detail-dark.png)
+![Nomad Compass monitored jobs in the dark theme](images/compass-jobs.png)
 
 ## Getting Started
 
