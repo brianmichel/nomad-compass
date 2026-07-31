@@ -56,6 +56,42 @@ Nomad Compass is configured via environment variables:
 
 > ⚠️ The encryption key is mandatory. Generate one with `openssl rand -hex 32`.
 
+### Command-line validation
+
+The binary also exposes a side-effect-free bundle validation command. It parses the manifest, checks dependency ordering, validates supported native Nomad resource bodies, and prints stable spec and manifest hashes. It does not require `COMPASS_CREDENTIAL_KEY`, a database, or a live Nomad cluster:
+
+```bash
+go run ./cmd/nomad-compass bundle validate --file example/homelab-compass.bundle.hcl
+cat example/homelab-compass.bundle.hcl | go run ./cmd/nomad-compass bundle validate --file -
+go run ./cmd/nomad-compass --format json bundle validate --file example/homelab-compass.bundle.hcl
+```
+
+To compare two manifests and get a compact change summary, use the offline bundle plan command:
+
+```bash
+go run ./cmd/nomad-compass bundle plan \
+  --file desired.bundle.hcl \
+  --against previous.bundle.hcl \
+  --revision a1b2c3d
+```
+
+It emits a readable summary with one resource transition per line and a counted plan section. This is a manifest-to-manifest plan; it does not contact Nomad yet.
+
+When the Compass daemon is running, the CLI also exposes the HTTP API operations:
+
+```bash
+nomad-compass --format json --server http://127.0.0.1:8080 status
+nomad-compass repo list
+nomad-compass repo add --name homelab --url https://github.com/example/homelab.git --branch main
+nomad-compass repo reconcile --id 1
+nomad-compass repo delete --id 1 --unschedule --yes
+nomad-compass credential list
+nomad-compass credential add --name github --type https-token --token "$GITHUB_TOKEN"
+nomad-compass credential delete --id 1 --yes
+```
+
+Destructive commands require `--yes`; `--unschedule` explicitly requests Nomad resource removal. Global options such as `--format` and `--server` are placed before the command verbs.
+
 ### Running locally
 
 1. Install backend dependencies and prepare the database:
