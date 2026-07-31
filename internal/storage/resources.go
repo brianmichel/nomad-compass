@@ -8,18 +8,19 @@ import (
 // ManagedResourceInput contains the latest observed state for a bundle
 // resource.
 type ManagedResourceInput struct {
-	RepoID      int64
-	Address     string
-	Kind        string
-	SourcePath  string
-	NomadID     string
-	Namespace   string
-	ContentHash string
-	LastCommit  string
-	Status      string
-	LastError   string
-	DeleteMode  string
-	Subtype     string
+	RepoID       int64
+	Address      string
+	Kind         string
+	SourcePath   string
+	NomadID      string
+	Namespace    string
+	ContentHash  string
+	ManifestHash string
+	LastCommit   string
+	Status       string
+	LastError    string
+	DeleteMode   string
+	Subtype      string
 }
 
 // ManagedResourceStore persists bundle resource ownership and observations.
@@ -35,14 +36,15 @@ func NewManagedResourceStore(db *sql.DB) *ManagedResourceStore {
 // Upsert records the latest state for a repository resource address.
 func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResourceInput) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO managed_resources
-        (repo_id, address, kind, source_path, nomad_id, namespace, content_hash, last_commit, status, last_error, delete_mode, subtype, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(repo_id, address) DO UPDATE SET
           kind = excluded.kind,
           source_path = excluded.source_path,
           nomad_id = excluded.nomad_id,
           namespace = excluded.namespace,
           content_hash = excluded.content_hash,
+          manifest_hash = excluded.manifest_hash,
           last_commit = excluded.last_commit,
           status = excluded.status,
           last_error = excluded.last_error,
@@ -56,6 +58,7 @@ func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResource
 		stringOrNull(input.NomadID),
 		stringOrNull(input.Namespace),
 		stringOrNull(input.ContentHash),
+		stringOrNull(input.ManifestHash),
 		stringOrNull(input.LastCommit),
 		input.Status,
 		stringOrNull(input.LastError),
@@ -68,7 +71,7 @@ func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResource
 
 // ListByRepo returns all resources previously observed for a repository.
 func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]ManagedResource, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, address, kind, source_path, nomad_id, namespace, content_hash, last_commit, status, last_error, delete_mode, subtype, updated_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, updated_at
         FROM managed_resources WHERE repo_id = ? ORDER BY address`, repoID)
 	if err != nil {
 		return nil, err
@@ -87,6 +90,7 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 			&resource.NomadID,
 			&resource.Namespace,
 			&resource.ContentHash,
+			&resource.ManifestHash,
 			&resource.LastCommit,
 			&resource.Status,
 			&resource.LastError,

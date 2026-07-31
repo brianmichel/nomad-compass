@@ -298,6 +298,51 @@ func TestBundleVolumeChangesRequireExplicitReplacement(t *testing.T) {
 	}
 }
 
+func TestEnsureBundleValidatesBeforeApplying(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "compass-data"
+    type = "host"
+  }
+  resource "acl_policy" "invalid" {
+    description = "missing rules"
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, true); err == nil {
+		t.Fatal("expected invalid bundle validation to fail")
+	}
+	if len(fake.resourceCalls) != 0 {
+		t.Fatalf("expected no Nomad mutations before validation, got %v", fake.resourceCalls)
+	}
+}
+
+func TestBundleRejectsUnmanagedACLPolicyCollision(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+	fake.aclPolicy = &api.ACLPolicy{Name: "existing"}
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "acl_policy" "existing" {
+    rules {
+      namespace "default" { capabilities = ["read-job"] }
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, true); err == nil {
+		t.Fatal("expected unmanaged ACL policy collision to fail")
+	}
+	if slices.Contains(fake.resourceCalls, "policy:existing") {
+		t.Fatalf("unmanaged ACL policy was overwritten: %v", fake.resourceCalls)
+	}
+}
+
 func TestApplyJobAddsMetadata(t *testing.T) {
 	fake := &fakeNomad{}
 	m := &Manager{nomad: fake}

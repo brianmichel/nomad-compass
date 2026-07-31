@@ -76,6 +76,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             nomad_id TEXT,
             namespace TEXT,
             content_hash TEXT,
+            manifest_hash TEXT,
             last_commit TEXT,
             status TEXT NOT NULL,
             last_error TEXT,
@@ -88,6 +89,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE repos ADD COLUMN job_path TEXT NOT NULL DEFAULT '.nomad'`,
 		`ALTER TABLE repo_files ADD COLUMN job_id TEXT`,
 		`ALTER TABLE repo_files ADD COLUMN delete_mode TEXT NOT NULL DEFAULT 'allow'`,
+		`ALTER TABLE managed_resources ADD COLUMN manifest_hash TEXT`,
 	}
 
 	for _, stmt := range stmts {

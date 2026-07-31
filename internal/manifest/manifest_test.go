@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -96,6 +97,31 @@ func TestParseEmbeddedResources(t *testing.T) {
 	}
 	if parsed == nil || parsed.Name == nil || *parsed.Name != "compass" {
 		t.Fatalf("unexpected reconstructed job: %#v", parsed)
+	}
+}
+
+func TestResourceHashesTrackSpecAndCompassMetadataSeparately(t *testing.T) {
+	parse := func(deleteMode string) Resource {
+		bundle, err := Parse([]byte(fmt.Sprintf(`bundle "compass" {
+  resource "volume" "data" {
+    delete = %q
+    name = "compass-data"
+    type = "host"
+  }
+}`, deleteMode)), "compass.bundle.hcl")
+		if err != nil {
+			t.Fatalf("parse bundle: %v", err)
+		}
+		return bundle.Resources[0]
+	}
+
+	protected := parse("protect")
+	allowed := parse("allow")
+	if SpecHash(protected) != SpecHash(allowed) {
+		t.Fatal("expected deletion metadata to leave the Nomad spec hash unchanged")
+	}
+	if ManifestHash(protected) == ManifestHash(allowed) {
+		t.Fatal("expected manifest hash to change when deletion metadata changes")
 	}
 }
 

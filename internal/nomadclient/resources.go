@@ -28,19 +28,6 @@ func (a *API) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (*api.H
 		return nil, errors.New("host volume is required")
 	}
 
-	if volume.ID == "" {
-		stubs, _, err := a.client.HostVolumes().List(&api.HostVolumeListRequest{}, &api.QueryOptions{Namespace: volume.Namespace})
-		if err != nil {
-			return nil, err
-		}
-		for _, stub := range stubs {
-			if stub != nil && stub.Name == volume.Name && effectiveNamespace(stub.Namespace) == effectiveNamespace(volume.Namespace) {
-				volume.ID = stub.ID
-				break
-			}
-		}
-	}
-
 	resp, _, err := a.client.HostVolumes().Create(&api.HostVolumeCreateRequest{Volume: volume}, &api.WriteOptions{Namespace: volume.Namespace})
 	if err != nil {
 		return nil, err
@@ -151,13 +138,6 @@ func (a *API) DeleteACLPolicy(_ context.Context, name string) error {
 		return nil
 	}
 	return err
-}
-
-func effectiveNamespace(namespace string) string {
-	if namespace == "" {
-		return "default"
-	}
-	return namespace
 }
 
 func isNotFound(err error) bool {

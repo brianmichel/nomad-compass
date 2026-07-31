@@ -2,8 +2,11 @@
 package manifest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/hashicorp/hcl/v2"
@@ -52,6 +55,31 @@ var supportedKinds = map[string]struct{}{
 	"acl_auth_method":  {},
 	"acl_binding_rule": {},
 	"acl_token":        {},
+}
+
+// SpecHash returns a digest of the native Nomad resource body.
+func SpecHash(resource Resource) string {
+	digest := sha256.Sum256(resource.Body)
+	return hex.EncodeToString(digest[:])
+}
+
+// ManifestHash returns a digest of the complete Compass declaration, excluding
+// source path so moving a bundle does not change resource identity.
+func ManifestHash(resource Resource) string {
+	dependencies := append([]string(nil), resource.DependsOn...)
+	sort.Strings(dependencies)
+
+	hash := sha256.New()
+	for _, value := range []string{resource.Kind, resource.Name, resource.Address, string(resource.DeleteMode)} {
+		_, _ = hash.Write([]byte(value))
+		_, _ = hash.Write([]byte{0})
+	}
+	for _, dependency := range dependencies {
+		_, _ = hash.Write([]byte(dependency))
+		_, _ = hash.Write([]byte{0})
+	}
+	_, _ = hash.Write(resource.Body)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // Parse validates and parses one Compass bundle manifest.
@@ -162,7 +190,7 @@ func parseResource(block *hclwrite.Block, path string) (Resource, error) {
 
 func defaultDeleteMode(kind string) DeleteMode {
 	switch kind {
-	case "volume", "acl_policy":
+	case "volume", "acl_policy", "namespace", "acl_token", "acl_auth_method", "variable":
 		return DeleteModeProtect
 	default:
 		return DeleteModeAllow
