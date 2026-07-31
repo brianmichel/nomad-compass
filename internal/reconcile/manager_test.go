@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
@@ -22,7 +23,7 @@ import (
 func TestManagedDeletionOrderDeletesDependentsFirst(t *testing.T) {
 	ordered, err := managedDeletionOrder([]storage.ManagedResource{
 		{Address: "volume.data", Kind: "volume"},
-		{Address: "job.app", Kind: "job", DependsOn: []string{"volume.data"}},
+		{Address: "job.app", Kind: "job", DependsOn: sql.NullString{String: `["volume.data"]`, Valid: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -31,8 +32,8 @@ func TestManagedDeletionOrderDeletesDependentsFirst(t *testing.T) {
 		t.Fatalf("order = %#v", ordered)
 	}
 	_, err = managedDeletionOrder([]storage.ManagedResource{
-		{Address: "a", DependsOn: []string{"b"}},
-		{Address: "b", DependsOn: []string{"a"}},
+		{Address: "a", DependsOn: sql.NullString{String: `["b"]`, Valid: true}},
+		{Address: "b", DependsOn: sql.NullString{String: `["a"]`, Valid: true}},
 	})
 	if err == nil {
 		t.Fatal("expected dependency cycle to fail closed")
@@ -160,6 +161,11 @@ func TestEnsureBundleAppliesResourcesInDependencyOrder(t *testing.T) {
 	if len(tracked) != 3 {
 		t.Fatalf("expected all bundle resources tracked, got %d", len(tracked))
 	}
+	for _, resource := range tracked {
+		if resource.Address == "job.compass" && (!resource.DependsOn.Valid || resource.DependsOn.String != `["volume.data","acl_policy.compass"]`) {
+			t.Fatalf("expected persisted job dependencies, got %#v", resource.DependsOn)
+		}
+	}
 
 	remainingBundle, err := manifest.Parse([]byte(`bundle "compass" {
   resource "job" "compass" {
@@ -241,7 +247,54 @@ func TestProtectedResourceLifecycleRequiresExplicitAction(t *testing.T) {
 	}
 }
 
-func TestAdoptBundleResourceRecordsMatchingHostVolumeWithoutMutation(t *testing.T) {
+func TestManagedDeletionOrderUsesPersistedDependencies(t *testing.T) {
+	resources := []storage.ManagedResource{
+		{Address: "acl_policy.web", Kind: "acl_policy"},
+		{Address: "volume.data", Kind: "volume", DependsOn: sql.NullString{String: `["acl_policy.web"]`, Valid: true}},
+		{Address: "job.web", Kind: "job", DependsOn: sql.NullString{String: `["volume.data"]`, Valid: true}},
+	}
+	ordered, err := managedDeletionOrder(resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addresses := make([]string, 0, len(ordered))
+	for _, resource := range ordered {
+		addresses = append(addresses, resource.Address)
+	}
+	if !reflect.DeepEqual(addresses, []string{"job.web", "volume.data", "acl_policy.web"}) {
+		t.Fatalf("deletion order = %v", addresses)
+	}
+	_, err = managedDeletionOrder([]storage.ManagedResource{
+		{Address: "volume.data", Kind: "volume", DependsOn: sql.NullString{String: "not-json", Valid: true}},
+		{Address: "job.web", Kind: "job"},
+	})
+	if err == nil {
+		t.Fatal("expected malformed dependency metadata to fail closed")
+	}
+}
+
+func TestUnscheduleManagedResourcesDeletesDependentsFirst(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	resources := []storage.ManagedResource{
+		{RepoID: repoRecord.ID, Address: "acl_policy.web", Kind: "acl_policy", NomadID: sql.NullString{String: "web", Valid: true}, DeleteMode: "allow"},
+		{RepoID: repoRecord.ID, Address: "volume.data", Kind: "volume", NomadID: sql.NullString{String: "data", Valid: true}, DeleteMode: "allow", Subtype: sql.NullString{String: "host", Valid: true}, DependsOn: sql.NullString{String: `["acl_policy.web"]`, Valid: true}},
+		{RepoID: repoRecord.ID, Address: "job.web", Kind: "job", NomadID: sql.NullString{String: "web", Valid: true}, DeleteMode: "allow", DependsOn: sql.NullString{String: `["volume.data"]`, Valid: true}},
+	}
+	for _, resource := range resources {
+		if err := managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: resource.RepoID, Address: resource.Address, Kind: resource.Kind, NomadID: resource.NomadID.String, DeleteMode: resource.DeleteMode, Subtype: resource.Subtype.String, DependsOn: resource.DependsOn.String, Status: "applied"}); err != nil {
+			t.Fatalf("upsert %s: %v", resource.Address, err)
+		}
+	}
+	if err := manager.unscheduleManagedResources(ctx, repoRecord.ID); err != nil {
+		t.Fatalf("unschedule resources: %v", err)
+	}
+	if !reflect.DeepEqual(fake.deregistered, []string{"web"}) || !reflect.DeepEqual(fake.resourceCalls, []string{"delete-job:web", "delete-volume:data", "delete-policy:web"}) {
+		t.Fatalf("deletion calls were not dependency ordered: jobs=%v resources=%v", fake.deregistered, fake.resourceCalls)
+	}
+}
+
+func TestAdoptBundleResourceRecordsMatchingHostVolume(t *testing.T) {
 	ctx := context.Background()
 	manager, repoRecord, managed, fake := newBundleManager(t)
 	bundle, err := manifest.Parse([]byte(`bundle "compass" {
@@ -1116,6 +1169,7 @@ func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api
 }
 
 func (f *fakeNomad) DeregisterJob(_ context.Context, jobID string, _ bool) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-job:"+jobID)
 	if f.lastJob != nil && f.lastJob.ID != nil && *f.lastJob.ID == jobID {
 		f.lastJob = nil
 	}

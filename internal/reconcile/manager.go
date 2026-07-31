@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -925,7 +926,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				LastError:    "resource removed from bundle but deletion is protected",
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
-				DependsOn:    resource.DependsOn,
+				DependsOn:    resource.DependsOn.String,
 			}); err != nil {
 				return fmt.Errorf("record protected orphan %q: %w", resource.Address, err)
 			}
@@ -956,7 +957,7 @@ func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snaps
 		LastError:    lastError,
 		DeleteMode:   string(resource.DeleteMode),
 		Subtype:      subtype,
-		DependsOn:    resource.DependsOn,
+		DependsOn:    encodedDependencies(resource),
 	})
 }
 
@@ -982,7 +983,13 @@ func managedDeletionOrder(resources []storage.ManagedResource) ([]storage.Manage
 			return nil
 		}
 		state[address] = 1
-		for _, dependency := range resource.DependsOn {
+		var dependencies []string
+		if resource.DependsOn.Valid && resource.DependsOn.String != "" {
+			if err := json.Unmarshal([]byte(resource.DependsOn.String), &dependencies); err != nil {
+				return fmt.Errorf("invalid dependencies for %q: %w", address, err)
+			}
+		}
+		for _, dependency := range dependencies {
 			if err := visit(dependency); err != nil {
 				return err
 			}
@@ -1003,6 +1010,11 @@ func managedDeletionOrder(resources []storage.ManagedResource) ([]storage.Manage
 		ordered[left], ordered[right] = ordered[right], ordered[left]
 	}
 	return ordered, nil
+}
+
+func encodedDependencies(resource manifest.Resource) string {
+	encoded, _ := json.Marshal(resource.DependsOn)
+	return string(encoded)
 }
 
 func validateUniqueVolumeIdentities(resources []manifest.Resource) error {
@@ -1213,7 +1225,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
-			DependsOn:    resource.DependsOn,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
 	}
@@ -1284,7 +1296,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
-			DependsOn:    resource.DependsOn,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
 	}
