@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brianmichel/nomad-compass/internal/manifest"
+	bundleplan "github.com/brianmichel/nomad-compass/internal/plan"
 )
 
 // Run executes a Compass CLI command. It returns an error suitable for
@@ -232,6 +233,27 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	}
 	reconcileCommand.Flags().Int64Var(&reconcileID, "id", 0, "repository ID")
 
+	var planID int64
+	planCommand := &cobra.Command{
+		Use:   "plan",
+		Short: "Show a read-only live plan for one repository",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if planID <= 0 {
+				return errors.New("--id must be greater than zero")
+			}
+			var report PlanReport
+			path := "/api/repos/" + strconv.FormatInt(planID, 10) + "/plan"
+			if err := state.client().get(cmd.Context(), path, &report); err != nil {
+				return err
+			}
+			return writeValue(state.out, state.format, report, func() error {
+				return writeTextPlan(state.out, report)
+			})
+		},
+	}
+	planCommand.Flags().Int64Var(&planID, "id", 0, "repository ID")
+
 	var deleteID int64
 	var unschedule, confirm bool
 	deleteCommand := &cobra.Command{
@@ -260,7 +282,7 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	deleteCommand.Flags().BoolVar(&unschedule, "unschedule", false, "remove managed Nomad resources")
 	deleteCommand.Flags().BoolVar(&confirm, "yes", false, "confirm deletion")
 
-	repoCommand.AddCommand(list, add, reconcileCommand, deleteCommand)
+	repoCommand.AddCommand(list, add, reconcileCommand, planCommand, deleteCommand)
 	return repoCommand
 }
 
@@ -391,33 +413,11 @@ func loadValidatedBundle(ctx context.Context, in io.Reader, filePath string) (*m
 	return bundle, resources, nil
 }
 
-// PlanReport is the stable machine-readable result of bundle plan.
-type PlanReport struct {
-	Bundle     string         `json:"bundle"`
-	Revision   string         `json:"revision"`
-	ComparedTo string         `json:"compared_to,omitempty"`
-	Resources  []PlanResource `json:"resources"`
-	Summary    PlanSummary    `json:"summary"`
-}
-
-// PlanResource describes one offline desired-state transition.
-type PlanResource struct {
-	Action       string `json:"action"`
-	Address      string `json:"address"`
-	Kind         string `json:"kind"`
-	DeleteMode   string `json:"delete_mode"`
-	SpecHash     string `json:"spec_hash,omitempty"`
-	ManifestHash string `json:"manifest_hash,omitempty"`
-}
-
-// PlanSummary counts the transitions in a plan.
-type PlanSummary struct {
-	Create    int `json:"create"`
-	Update    int `json:"update"`
-	Delete    int `json:"delete"`
-	Protected int `json:"protected"`
-	Unchanged int `json:"unchanged"`
-}
+// Plan types are aliases so the CLI and reconciliation service share one
+// planning contract and cannot drift in their action semantics.
+type PlanReport = bundleplan.Report
+type PlanResource = bundleplan.ResourcePlan
+type PlanSummary = bundleplan.Summary
 
 // ValidationReport is the stable machine-readable result of bundle validate.
 type ValidationReport struct {
@@ -489,7 +489,7 @@ func writeTextReport(out io.Writer, report ValidationReport) error {
 }
 
 func runBundlePlan(ctx context.Context, state *commandState, desiredPath, againstPath, revision string) error {
-	desired, desiredResources, err := loadValidatedBundle(ctx, state.in, desiredPath)
+	desired, _, err := loadValidatedBundle(ctx, state.in, desiredPath)
 	if err != nil {
 		return err
 	}
@@ -500,67 +500,12 @@ func runBundlePlan(ctx context.Context, state *commandState, desiredPath, agains
 			return fmt.Errorf("load comparison bundle: %w", err)
 		}
 	}
-
-	desiredByAddress := make(map[string]manifest.Resource, len(desired.Resources))
-	for _, resource := range desired.Resources {
-		desiredByAddress[resource.Address] = resource
-	}
-	previousByAddress := make(map[string]manifest.Resource)
-	if previous != nil {
-		for _, resource := range previous.Resources {
-			previousByAddress[resource.Address] = resource
-		}
-	}
-
-	plan := PlanReport{Bundle: desired.Name, Revision: revision, ComparedTo: againstPath}
-	for _, report := range desiredResources {
-		resource := desiredByAddress[report.Address]
-		action := "create"
-		if old, exists := previousByAddress[resource.Address]; exists {
-			action = "unchanged"
-			if manifest.SpecHash(resource) != manifest.SpecHash(old) || manifest.ManifestHash(resource) != manifest.ManifestHash(old) {
-				action = "update"
-			}
-		}
-		plan.Resources = append(plan.Resources, PlanResource{Action: action, Address: resource.Address, Kind: resource.Kind, DeleteMode: string(resource.DeleteMode), SpecHash: report.SpecHash, ManifestHash: report.ManifestHash})
-		incrementPlanSummary(&plan.Summary, action)
-	}
-	if previous != nil {
-		previousOrdered, err := previous.OrderedResources()
-		if err != nil {
-			return err
-		}
-		for _, resource := range previousOrdered {
-			if _, exists := desiredByAddress[resource.Address]; exists {
-				continue
-			}
-			action := "delete"
-			if resource.DeleteMode == manifest.DeleteModeProtect {
-				action = "protected"
-			}
-			plan.Resources = append(plan.Resources, PlanResource{Action: action, Address: resource.Address, Kind: resource.Kind, DeleteMode: string(resource.DeleteMode), SpecHash: manifest.SpecHash(resource), ManifestHash: manifest.ManifestHash(resource)})
-			incrementPlanSummary(&plan.Summary, action)
-		}
-	}
-
-	return writeValue(state.out, state.format, plan, func() error {
-		return writeTextPlan(state.out, plan)
+	result := bundleplan.CompareBundles(desired, previous)
+	result.Revision = revision
+	result.ComparedTo = againstPath
+	return writeValue(state.out, state.format, result, func() error {
+		return writeTextPlan(state.out, result)
 	})
-}
-
-func incrementPlanSummary(summary *PlanSummary, action string) {
-	switch action {
-	case "create":
-		summary.Create++
-	case "update":
-		summary.Update++
-	case "delete":
-		summary.Delete++
-	case "protected":
-		summary.Protected++
-	case "unchanged":
-		summary.Unchanged++
-	}
 }
 
 func writeTextPlan(out io.Writer, plan PlanReport) error {

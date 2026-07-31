@@ -10,6 +10,10 @@ node = "20"
 [tasks.go-test]
 run = "go test ./... -v"
 
+[tasks.coverage]
+description = "Run Go tests and print package and total coverage"
+run = "mkdir -p .tmp && go test ./... -coverprofile=.tmp/coverage.out && go tool cover -func=.tmp/coverage.out | tail -1"
+
 [tasks.frontend-install]
 dir = "frontend"
 run = "npm install"
