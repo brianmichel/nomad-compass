@@ -45,6 +45,7 @@ type reconcileManager interface {
 	ListProtectedResources(ctx context.Context, repoID int64) ([]storage.ManagedResource, error)
 	ForgetProtectedResource(ctx context.Context, repoID int64, address string) error
 	DeleteProtectedResource(ctx context.Context, repoID int64, address string) error
+	AdoptBundleResource(ctx context.Context, repoID int64, address string) error
 	DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error
 	DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error
 }
@@ -95,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 		api.Get("/repos/{id}/orphans", s.handleListOrphans)
 		api.Post("/repos/{id}/orphans/forget", s.handleForgetOrphan)
 		api.Post("/repos/{id}/orphans/delete", s.handleDeleteOrphan)
+		api.Post("/repos/{id}/adopt", s.handleAdoptResource)
 		api.Delete("/repos/{id}", s.handleDeleteRepo)
 
 		api.Get("/credentials", s.handleListCredentials)
@@ -231,6 +233,24 @@ func (s *Server) handleOrphanAction(w http.ResponseWriter, r *http.Request, dele
 		err = s.reconciler.ForgetProtectedResource(r.Context(), id, req.Address)
 	}
 	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	respondStatus(w, http.StatusOK, nil)
+}
+
+func (s *Server) handleAdoptResource(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	var req orphanActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Address) == "" {
+		respondStatus(w, http.StatusBadRequest, errors.New("resource address is required"))
+		return
+	}
+	if err := s.reconciler.AdoptBundleResource(r.Context(), id, req.Address); err != nil {
 		respondErr(w, err)
 		return
 	}
