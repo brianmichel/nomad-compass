@@ -37,13 +37,31 @@ func TestACLPolicyAdapterAppliesAndObserves(t *testing.T) {
 	resource := bundle.Resources[0]
 	adapter := aclPolicyAdapter{}
 	fake := &fakeNomad{}
-	result, err := adapter.Apply(context.Background(), fake, resource)
+	result, err := adapter.Apply(context.Background(), fake, resource, storage.ManagedResource{})
 	if err != nil || result.NomadID != "web" {
 		t.Fatalf("apply ACL policy: %v %#v", err, result)
 	}
 	observation, err := adapter.Observe(context.Background(), fake, resource, storage.ManagedResource{})
 	if err != nil || observation != (plan.Observation{Present: true, Matches: true}) {
 		t.Fatalf("observe ACL policy: %v %#v", err, observation)
+	}
+}
+
+func TestVolumeAdapterRejectsUnmanagedCollision(t *testing.T) {
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "data"
+    type = "host"
+    plugin_id = "mkdir"
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	fake := &fakeNomad{hostVolume: &api.HostVolume{ID: "data-id", Name: "data", PluginID: "mkdir"}}
+	_, err = (volumeAdapter{}).Apply(context.Background(), fake, bundle.Resources[0], storage.ManagedResource{})
+	if err == nil {
+		t.Fatal("expected unmanaged host volume collision")
 	}
 }
 
