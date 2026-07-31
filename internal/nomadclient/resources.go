@@ -17,6 +17,10 @@ type ResourceLookup interface {
 	FindHostVolume(ctx context.Context, name, namespace string) (*api.HostVolume, error)
 	FindCSIVolume(ctx context.Context, name, namespace string) (*api.CSIVolume, error)
 	ObserveACLPolicy(ctx context.Context, name string) (*api.ACLPolicy, error)
+	ObserveNamespace(ctx context.Context, name string) (*api.Namespace, error)
+	ObserveQuota(ctx context.Context, name string) (*api.QuotaSpec, error)
+	ObserveVariable(ctx context.Context, namespace, path string) (*api.Variable, error)
+	ObserveSentinelPolicy(ctx context.Context, name string) (*api.SentinelPolicy, error)
 }
 
 type ResourceClient interface {
@@ -30,6 +34,18 @@ type ResourceClient interface {
 	ApplyACLPolicy(ctx context.Context, policy *api.ACLPolicy) error
 	ObserveACLPolicy(ctx context.Context, name string) (*api.ACLPolicy, error)
 	DeleteACLPolicy(ctx context.Context, name string) error
+	ObserveNamespace(ctx context.Context, name string) (*api.Namespace, error)
+	ObserveQuota(ctx context.Context, name string) (*api.QuotaSpec, error)
+	ObserveVariable(ctx context.Context, namespace, path string) (*api.Variable, error)
+	ObserveSentinelPolicy(ctx context.Context, name string) (*api.SentinelPolicy, error)
+	ApplyNamespace(ctx context.Context, namespace *api.Namespace) error
+	DeleteNamespace(ctx context.Context, name string) error
+	ApplyQuota(ctx context.Context, quota *api.QuotaSpec) error
+	DeleteQuota(ctx context.Context, name string) error
+	ApplyVariable(ctx context.Context, variable *api.Variable) (*api.Variable, error)
+	DeleteVariable(ctx context.Context, namespace, path string) error
+	ApplySentinelPolicy(ctx context.Context, policy *api.SentinelPolicy) error
+	DeleteSentinelPolicy(ctx context.Context, name string) error
 }
 
 func (a *API) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (*api.HostVolume, error) {
