@@ -1127,6 +1127,10 @@ type fakeNomad struct {
 	jobStatuses      map[string]*nomadclient.JobStatus
 	hostVolume       *api.HostVolume
 	aclPolicy        *api.ACLPolicy
+	namespace        *api.Namespace
+	quota            *api.QuotaSpec
+	variable         *api.Variable
+	sentinelPolicy   *api.SentinelPolicy
 	resourceCalls    []string
 }
 
@@ -1248,6 +1252,86 @@ func (f *fakeNomad) ObserveACLPolicy(_ context.Context, name string) (*api.ACLPo
 func (f *fakeNomad) DeleteACLPolicy(_ context.Context, name string) error {
 	f.resourceCalls = append(f.resourceCalls, "delete-policy:"+name)
 	f.aclPolicy = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplyNamespace(_ context.Context, namespace *api.Namespace) error {
+	f.resourceCalls = append(f.resourceCalls, "namespace:"+namespace.Name)
+	copy := *namespace
+	f.namespace = &copy
+	return nil
+}
+
+func (f *fakeNomad) ObserveNamespace(_ context.Context, name string) (*api.Namespace, error) {
+	if f.namespace == nil || f.namespace.Name != name {
+		return nil, nil
+	}
+	return f.namespace, nil
+}
+
+func (f *fakeNomad) DeleteNamespace(_ context.Context, name string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-namespace:"+name)
+	f.namespace = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplyQuota(_ context.Context, quota *api.QuotaSpec) error {
+	f.resourceCalls = append(f.resourceCalls, "quota:"+quota.Name)
+	copy := *quota
+	f.quota = &copy
+	return nil
+}
+
+func (f *fakeNomad) ObserveQuota(_ context.Context, name string) (*api.QuotaSpec, error) {
+	if f.quota == nil || f.quota.Name != name {
+		return nil, nil
+	}
+	return f.quota, nil
+}
+
+func (f *fakeNomad) DeleteQuota(_ context.Context, name string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-quota:"+name)
+	f.quota = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplyVariable(_ context.Context, variable *api.Variable) (*api.Variable, error) {
+	f.resourceCalls = append(f.resourceCalls, "variable:"+variable.Path)
+	copy := *variable
+	f.variable = &copy
+	return &copy, nil
+}
+
+func (f *fakeNomad) ObserveVariable(_ context.Context, _, path string) (*api.Variable, error) {
+	if f.variable == nil || f.variable.Path != path {
+		return nil, nil
+	}
+	return f.variable, nil
+}
+
+func (f *fakeNomad) DeleteVariable(_ context.Context, _, path string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-variable:"+path)
+	f.variable = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplySentinelPolicy(_ context.Context, policy *api.SentinelPolicy) error {
+	f.resourceCalls = append(f.resourceCalls, "sentinel:"+policy.Name)
+	copy := *policy
+	f.sentinelPolicy = &copy
+	return nil
+}
+
+func (f *fakeNomad) ObserveSentinelPolicy(_ context.Context, name string) (*api.SentinelPolicy, error) {
+	if f.sentinelPolicy == nil || f.sentinelPolicy.Name != name {
+		return nil, nil
+	}
+	return f.sentinelPolicy, nil
+}
+
+func (f *fakeNomad) DeleteSentinelPolicy(_ context.Context, name string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-sentinel:"+name)
+	f.sentinelPolicy = nil
 	return nil
 }
 
