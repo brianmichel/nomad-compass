@@ -172,6 +172,52 @@ func TestCompileHostVolumeAndACLPolicy(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsUnknownNativeAttributes(t *testing.T) {
+	bundle, err := Parse([]byte(`bundle "strict" {
+  resource "volume" "data" {
+    name = "data"
+    type = "host"
+    plugin_id = "mkdir"
+    unexpected = "reject me"
+  }
+  resource "acl_policy" "web" {
+    description = "web"
+    unsupported = true
+    rules {
+      namespace "default" { policy = "read" }
+    }
+  }
+}`), "strict.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if _, err := CompileVolume(bundle.Resources[0]); err == nil {
+		t.Fatal("expected unknown volume attribute to be rejected")
+	}
+	if _, err := CompileACLPolicy(bundle.Resources[1]); err == nil {
+		t.Fatal("expected unknown ACL policy attribute to be rejected")
+	}
+}
+
+func TestCompileRejectsUnknownACLBlocks(t *testing.T) {
+	bundle, err := Parse([]byte(`bundle "strict" {
+  resource "acl_policy" "web" {
+    rules {
+      namespace "default" {
+        policy = "read"
+      }
+    }
+    unexpected {}
+  }
+}`), "strict.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if _, err := CompileACLPolicy(bundle.Resources[0]); err == nil {
+		t.Fatal("expected unknown ACL policy block to be rejected")
+	}
+}
+
 func TestParseRejectsDependencyCycle(t *testing.T) {
 	_, err := Parse([]byte(`bundle "cycle" {
   resource "job" "a" { depends_on = ["job.b"] }

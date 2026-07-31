@@ -48,7 +48,7 @@ func CompileVolume(resource Resource) (VolumeSpec, error) {
 	switch volumeType {
 	case "host":
 		volume := &api.HostVolume{}
-		if err := mapstructure.WeakDecode(values, volume); err != nil {
+		if err := strictDecode(values, volume); err != nil {
 			return VolumeSpec{}, fmt.Errorf("decode host volume %q: %w", resource.Address, err)
 		}
 		if err := decodeHostCapabilities(list, &volume.RequestedCapabilities); err != nil {
@@ -57,7 +57,7 @@ func CompileVolume(resource Resource) (VolumeSpec, error) {
 		return VolumeSpec{Type: volumeType, Host: volume}, nil
 	case "csi":
 		volume := &api.CSIVolume{}
-		if err := mapstructure.WeakDecode(values, volume); err != nil {
+		if err := strictDecode(values, volume); err != nil {
 			return VolumeSpec{}, fmt.Errorf("decode CSI volume %q: %w", resource.Address, err)
 		}
 		if err := decodeCSICapabilities(list, &volume.RequestedCapabilities); err != nil {
@@ -69,6 +69,18 @@ func CompileVolume(resource Resource) (VolumeSpec, error) {
 	}
 }
 
+func strictDecode(values map[string]interface{}, result interface{}) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		WeaklyTypedInput: true,
+		ErrorUnused:      true,
+		Result:           result,
+	})
+	if err != nil {
+		return err
+	}
+	return decoder.Decode(values)
+}
+
 func decodeHostCapabilities(list *ast.ObjectList, target *[]*api.HostVolumeCapability) error {
 	for _, item := range list.Filter("capability").Elem().Items {
 		values := map[string]interface{}{}
@@ -76,7 +88,7 @@ func decodeHostCapabilities(list *ast.ObjectList, target *[]*api.HostVolumeCapab
 			return err
 		}
 		capability := &api.HostVolumeCapability{}
-		if err := mapstructure.WeakDecode(values, capability); err != nil {
+		if err := strictDecode(values, capability); err != nil {
 			return err
 		}
 		*target = append(*target, capability)
@@ -91,7 +103,7 @@ func decodeCSICapabilities(list *ast.ObjectList, target *[]*api.CSIVolumeCapabil
 			return err
 		}
 		capability := &api.CSIVolumeCapability{}
-		if err := mapstructure.WeakDecode(values, capability); err != nil {
+		if err := strictDecode(values, capability); err != nil {
 			return err
 		}
 		*target = append(*target, capability)
@@ -110,6 +122,24 @@ func CompileACLPolicy(resource Resource) (*api.ACLPolicy, error) {
 		return nil, fmt.Errorf("parse ACL policy %q: %s", resource.Address, diags.Error())
 	}
 	body := file.Body()
+	for name := range body.Attributes() {
+		if name != "description" {
+			return nil, fmt.Errorf("ACL policy %q has unsupported attribute %q", resource.Address, name)
+		}
+	}
+	rulesBlocks := 0
+	for _, block := range body.Blocks() {
+		if block.Type() != "rules" {
+			return nil, fmt.Errorf("ACL policy %q has unsupported block %q", resource.Address, block.Type())
+		}
+		rulesBlocks++
+	}
+	if rulesBlocks == 0 {
+		return nil, fmt.Errorf("ACL policy %q must contain a rules block", resource.Address)
+	}
+	if rulesBlocks > 1 {
+		return nil, fmt.Errorf("ACL policy %q must contain exactly one rules block", resource.Address)
+	}
 	description := ""
 	if attr := body.GetAttribute("description"); attr != nil {
 		value, err := stringAttribute(attr, resource.SourcePath)
