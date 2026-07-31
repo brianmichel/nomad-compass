@@ -174,16 +174,25 @@ bundle "local-e2e" {
     group "app" {
       count = 1
 
-      # The volume resource is validated through the Nomad volume API. The
-      # task stays independent so this host-side Nomad client can schedule a
-      # Docker task through the Lima daemon without crossing mount namespaces.
+      volume "data" {
+        type            = "host"
+        source          = "compass-e2e-data"
+        access_mode     = "single-node-single-writer"
+        attachment_mode = "file-system"
+      }
+
       task "verify" {
         driver = "docker"
 
         config {
           image   = "busybox:1.36"
           command = "sh"
-          args    = ["-c", "echo bundle-e2e-ok && sleep 3600"]
+          args    = ["-c", "mkdir -p /mnt/data && echo bundle-e2e-ok >/mnt/data/marker && sleep 3600"]
+        }
+
+        volume_mount {
+          volume      = "data"
+          destination = "/mnt/data"
         }
 
         resources {
