@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -569,7 +570,7 @@ func (m *Manager) unscheduleManagedResources(ctx context.Context, repoID int64) 
 	if !ok {
 		return errors.New("Nomad client does not support bundle resource cleanup")
 	}
-	for _, resource := range resources {
+	for _, resource := range managedDeletionOrder(resources) {
 		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
 			continue
 		}
@@ -822,6 +823,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				LastError:    "resource removed from bundle but deletion is protected",
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
+				DependsOn:    resource.DependsOn.String,
 			})
 			continue
 		}
@@ -836,6 +838,10 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 }
 
 func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, resource manifest.Resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype string) error {
+	dependsOn, err := json.Marshal(resource.DependsOn)
+	if err != nil {
+		return err
+	}
 	return m.managed.Upsert(ctx, storage.ManagedResourceInput{
 		RepoID:       repoID,
 		Address:      resource.Address,
@@ -850,19 +856,61 @@ func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snaps
 		LastError:    lastError,
 		DeleteMode:   string(resource.DeleteMode),
 		Subtype:      subtype,
+		DependsOn:    string(dependsOn),
 	})
 }
 
-// managedDeletionOrder handles the currently supported dependency shape:
-// bundle jobs may depend on volumes or ACL policies, so jobs are pruned first.
-// A persisted dependency graph can replace this kind ordering when more
-// cross-resource relationships are introduced.
+// managedDeletionOrder returns dependents before their dependencies. The
+// dependency JSON is persisted with each managed resource so this remains
+// correct even when the current bundle no longer contains the removed nodes.
 func managedDeletionOrder(resources []storage.ManagedResource) []storage.ManagedResource {
+	byAddress := make(map[string]storage.ManagedResource, len(resources))
 	ordered := append([]storage.ManagedResource(nil), resources...)
 	sort.SliceStable(ordered, func(i, j int) bool {
-		return managedDeletionRank(ordered[i].Kind) < managedDeletionRank(ordered[j].Kind)
+		rankI, rankJ := managedDeletionRank(ordered[i].Kind), managedDeletionRank(ordered[j].Kind)
+		if rankI != rankJ {
+			return rankI > rankJ
+		}
+		return ordered[i].Address > ordered[j].Address
 	})
-	return ordered
+	for _, resource := range ordered {
+		byAddress[resource.Address] = resource
+	}
+
+	state := make(map[string]uint8, len(ordered))
+	dependencyFirst := make([]storage.ManagedResource, 0, len(ordered))
+	var visit func(string)
+	visit = func(address string) {
+		switch state[address] {
+		case 1:
+			return
+		case 2:
+			return
+		}
+		resource, exists := byAddress[address]
+		if !exists {
+			return
+		}
+		state[address] = 1
+		var dependencies []string
+		if resource.DependsOn.Valid {
+			_ = json.Unmarshal([]byte(resource.DependsOn.String), &dependencies)
+		}
+		for _, dependency := range dependencies {
+			visit(dependency)
+		}
+		state[address] = 2
+		dependencyFirst = append(dependencyFirst, resource)
+	}
+	for _, resource := range ordered {
+		visit(resource.Address)
+	}
+
+	result := make([]storage.ManagedResource, 0, len(dependencyFirst))
+	for i := len(dependencyFirst) - 1; i >= 0; i-- {
+		result = append(result, dependencyFirst[i])
+	}
+	return result
 }
 
 func managedDeletionRank(kind string) int {
@@ -870,6 +918,11 @@ func managedDeletionRank(kind string) int {
 		return 0
 	}
 	return 1
+}
+
+func encodedDependencies(resource manifest.Resource) string {
+	encoded, _ := json.Marshal(resource.DependsOn)
+	return string(encoded)
 }
 
 func validateBundleResources(resources []manifest.Resource) error {
@@ -1037,6 +1090,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
 	}
@@ -1091,6 +1145,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
 	}
