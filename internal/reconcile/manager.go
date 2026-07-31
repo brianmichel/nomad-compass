@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/nomad/api"
@@ -237,20 +235,11 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		if resourceClient == nil {
 			return bundleplan.Observation{}, errors.New("Nomad client does not support bundle resources")
 		}
-		if resource.Kind == "volume" {
-			drifted, present, err := managedVolumeDrifted(ctx, resourceClient, resource, tracked)
-			return bundleplan.Observation{Present: present, Matches: present && !drifted}, err
+		adapter, ok := adapterFor(resource.Kind)
+		if !ok {
+			return bundleplan.Observation{}, fmt.Errorf("resource kind %q cannot be observed", resource.Kind)
 		}
-		policy, err := resourceClient.ObserveACLPolicy(ctx, resource.Name)
-		if err != nil || policy == nil {
-			return bundleplan.Observation{Present: policy != nil}, err
-		}
-		desiredPolicy, err := manifest.CompileACLPolicy(resource)
-		if err != nil {
-			return bundleplan.Observation{}, err
-		}
-		matches := policy.Description == desiredPolicy.Description && strings.TrimSpace(policy.Rules) == strings.TrimSpace(desiredPolicy.Rules)
-		return bundleplan.Observation{Present: true, Matches: matches}, nil
+		return adapter.Observe(ctx, resourceClient, resource, tracked)
 	}, lookup)
 	if err != nil {
 		return nil, err
@@ -342,56 +331,15 @@ func (m *Manager) adoptBundleResource(ctx context.Context, repoID int64, snapsho
 		if !ok {
 			return errors.New("Nomad client does not support resource adoption lookups")
 		}
-		switch resource.Kind {
-		case "volume":
-			spec, err := manifest.CompileVolume(resource)
-			if err != nil {
-				return err
-			}
-			if spec.Type == "host" {
-				volume, err := lookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
-				if err != nil {
-					return fmt.Errorf("find host volume %q: %w", resource.Name, err)
-				}
-				if volume == nil {
-					return fmt.Errorf("host volume %q not found", resource.Name)
-				}
-				if !hostVolumeEquivalent(spec.Host, volume) {
-					return fmt.Errorf("host volume %q does not match desired bundle resource", resource.Name)
-				}
-				nomadID, namespace, subtype = volume.ID, volume.Namespace, "host"
-			} else {
-				volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
-				if err != nil {
-					return fmt.Errorf("find CSI volume %q: %w", resource.Name, err)
-				}
-				if volume == nil {
-					return fmt.Errorf("CSI volume %q not found", resource.Name)
-				}
-				if !csiVolumeEquivalent(spec.CSI, volume) {
-					return fmt.Errorf("CSI volume %q does not match desired bundle resource", resource.Name)
-				}
-				nomadID, namespace, subtype = volume.ID, volume.Namespace, "csi"
-			}
-		case "acl_policy":
-			policy, err := lookup.ObserveACLPolicy(ctx, resource.Name)
-			if err != nil {
-				return fmt.Errorf("find ACL policy %q: %w", resource.Name, err)
-			}
-			if policy == nil {
-				return fmt.Errorf("ACL policy %q not found", resource.Name)
-			}
-			desired, err := manifest.CompileACLPolicy(resource)
-			if err != nil {
-				return err
-			}
-			if policy.Description != desired.Description || strings.TrimSpace(policy.Rules) != strings.TrimSpace(desired.Rules) {
-				return fmt.Errorf("ACL policy %q does not match desired bundle resource", resource.Name)
-			}
-			nomadID = resource.Name
-		default:
+		adapter, ok := adapterFor(resource.Kind)
+		if !ok {
 			return fmt.Errorf("resource kind %q cannot be adopted", resource.Kind)
 		}
+		result, err := adapter.Adopt(ctx, lookup, resource)
+		if err != nil {
+			return err
+		}
+		nomadID, namespace, subtype = result.NomadID, result.Namespace, result.Subtype
 	}
 	return m.upsertManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, manifest.SpecHash(resource), manifest.ManifestHash(resource), "applied", "", subtype)
 }
@@ -936,13 +884,13 @@ func validateBundleResources(resources []manifest.Resource) error {
 			if _, _, err := parseJob(resource.SourcePath, source); err != nil {
 				return fmt.Errorf("validate bundle job %q: %w", resource.Address, err)
 			}
-		case "volume":
-			if _, err := manifest.CompileVolume(resource); err != nil {
-				return fmt.Errorf("validate bundle volume %q: %w", resource.Address, err)
+		case "volume", "acl_policy":
+			adapter, ok := adapterFor(resource.Kind)
+			if !ok {
+				return fmt.Errorf("bundle resource %q is not supported yet", resource.Address)
 			}
-		case "acl_policy":
-			if _, err := manifest.CompileACLPolicy(resource); err != nil {
-				return fmt.Errorf("validate bundle ACL policy %q: %w", resource.Address, err)
+			if err := adapter.Validate(resource); err != nil {
+				return err
 			}
 		default:
 			return fmt.Errorf("bundle resource %q is not supported yet", resource.Address)
@@ -1037,14 +985,18 @@ func (m *Manager) replaceManagedVolume(ctx context.Context, client nomadclient.R
 }
 
 func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) error {
+	adapter, ok := adapterFor(resource.Kind)
+	if !ok {
+		return fmt.Errorf("resource kind %q cannot be managed as a bundle resource", resource.Kind)
+	}
 	hash := manifest.SpecHash(resource)
 	manifestHash := manifest.ManifestHash(resource)
 	if tracked.Address != "" && tracked.ContentHash.Valid && tracked.ContentHash.String == hash && tracked.Status == "applied" {
-		exists, err := managedResourceExists(ctx, client, resource, tracked)
+		observation, err := adapter.Observe(ctx, client, resource, tracked)
 		if err != nil {
 			return err
 		}
-		if exists {
+		if observation.Present && observation.Matches {
 			if tracked.ManifestHash.Valid && tracked.ManifestHash.String == manifestHash {
 				return nil
 			}
@@ -1052,212 +1004,59 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 		}
 	}
 
-	var nomadID, namespace string
 	failureHash := hash
 	if tracked.ContentHash.Valid {
 		failureHash = tracked.ContentHash.String
 	}
 	var err error
-	replaceVolume := false
-	if resource.Kind == "volume" && tracked.Address != "" && tracked.NomadID.Valid {
-		drifted, present, observeErr := managedVolumeDrifted(ctx, client, resource, tracked)
+	if tracked.Address != "" && tracked.NomadID.Valid {
+		observation, observeErr := adapter.Observe(ctx, client, resource, tracked)
 		if observeErr != nil {
 			return observeErr
 		}
-		replaceVolume = present && (drifted || tracked.ContentHash.Valid && tracked.ContentHash.String != hash)
-	}
-	if replaceVolume {
-		if _, compileErr := manifest.CompileVolume(resource); compileErr != nil {
-			err = compileErr
-		} else {
+		if resource.Kind == "volume" && observation.Present && (!observation.Matches || tracked.ContentHash.Valid && tracked.ContentHash.String != hash) {
 			err = m.replaceManagedVolume(ctx, client, resource, tracked)
 		}
 	}
 	if err != nil {
-		// Preserve the existing Nomad identity when a protected or failed
-		// replacement remains in place so the next reconcile can recover.
-		_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
-			RepoID:       repoID,
-			Address:      resource.Address,
-			Kind:         resource.Kind,
-			SourcePath:   resource.SourcePath,
-			NomadID:      tracked.NomadID.String,
-			Namespace:    tracked.Namespace.String,
-			ContentHash:  failureHash,
-			ManifestHash: manifestHash,
-			LastCommit:   snapshot.CommitHash,
-			Status:       "failed",
-			LastError:    err.Error(),
-			DeleteMode:   string(resource.DeleteMode),
-			Subtype:      tracked.Subtype.String,
-			DependsOn:    encodedDependencies(resource),
-		})
-		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
+		return m.recordManagedResourceFailure(ctx, repoID, snapshot, resource, tracked, failureHash, manifestHash, err, "prepare")
 	}
-	switch resource.Kind {
-	case "volume":
-		spec, compileErr := manifest.CompileVolume(resource)
-		if compileErr != nil {
-			err = compileErr
-			break
+	if resource.Kind == "acl_policy" && tracked.Address == "" {
+		existing, observeErr := client.ObserveACLPolicy(ctx, resource.Name)
+		if observeErr != nil {
+			err = observeErr
+		} else if existing != nil {
+			err = fmt.Errorf("ACL policy %q already exists but is not managed by this repository", resource.Name)
 		}
-		switch spec.Type {
-		case "host":
-			var volume *api.HostVolume
-			volume, err = client.ApplyHostVolume(ctx, spec.Host)
-			if volume != nil {
-				nomadID, namespace = volume.ID, volume.Namespace
-			}
-		case "csi":
-			var volume *api.CSIVolume
-			volume, err = client.ApplyCSIVolume(ctx, spec.CSI)
-			if volume != nil {
-				nomadID, namespace = volume.ID, volume.Namespace
-			}
-		}
-	case "acl_policy":
-		var policy *api.ACLPolicy
-		policy, err = manifest.CompileACLPolicy(resource)
-		if err == nil && tracked.Address == "" {
-			var existing *api.ACLPolicy
-			existing, err = client.ObserveACLPolicy(ctx, resource.Name)
-			if err == nil && existing != nil {
-				err = fmt.Errorf("ACL policy %q already exists but is not managed by this repository", resource.Name)
-			}
-		}
-		if err == nil {
-			err = client.ApplyACLPolicy(ctx, policy)
-			nomadID = resource.Name
-		}
+	}
+	var result managedResourceResult
+	if err == nil {
+		result, err = adapter.Apply(ctx, client, resource)
 	}
 	if err != nil {
-		_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
-			RepoID:       repoID,
-			Address:      resource.Address,
-			Kind:         resource.Kind,
-			SourcePath:   resource.SourcePath,
-			NomadID:      tracked.NomadID.String,
-			Namespace:    tracked.Namespace.String,
-			ContentHash:  failureHash,
-			ManifestHash: manifestHash,
-			LastCommit:   snapshot.CommitHash,
-			Status:       "failed",
-			LastError:    err.Error(),
-			DeleteMode:   string(resource.DeleteMode),
-			Subtype:      tracked.Subtype.String,
-			DependsOn:    encodedDependencies(resource),
-		})
-		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
+		return m.recordManagedResourceFailure(ctx, repoID, snapshot, resource, tracked, failureHash, manifestHash, err, "apply")
 	}
-
-	resourceType := ""
-	if resource.Kind == "volume" {
-		spec, _ := manifest.CompileVolume(resource)
-		resourceType = spec.Type
-	}
-	return m.upsertManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, hash, manifestHash, "applied", "", resourceType)
+	return m.upsertManagedResource(ctx, repoID, snapshot, resource, result.NomadID, result.Namespace, hash, manifestHash, "applied", "", result.Subtype)
 }
 
-func managedVolumeDrifted(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (drifted, present bool, err error) {
-	spec, err := manifest.CompileVolume(resource)
-	if err != nil {
-		return false, false, err
-	}
-	if tracked.Subtype.Valid && tracked.Subtype.String == "csi" {
-		volume, err := client.ObserveCSIVolume(ctx, tracked.NomadID.String, tracked.Namespace.String)
-		if err != nil || volume == nil {
-			return false, volume != nil, err
-		}
-		if spec.Type != "csi" {
-			return true, true, nil
-		}
-		return !csiVolumeEquivalent(spec.CSI, volume), true, nil
-	}
-	volume, err := client.ObserveHostVolume(ctx, tracked.NomadID.String, tracked.Namespace.String)
-	if err != nil || volume == nil {
-		return false, volume != nil, err
-	}
-	if spec.Type != "host" {
-		return true, true, nil
-	}
-	return !hostVolumeEquivalent(spec.Host, volume), true, nil
-}
-
-func hostVolumeEquivalent(desired, actual *api.HostVolume) bool {
-	if desired == nil || actual == nil || desired.Name != actual.Name {
-		return false
-	}
-	desiredPlugin := desired.PluginID
-	if desiredPlugin == "" {
-		desiredPlugin = "mkdir"
-	}
-	if actual.PluginID != desiredPlugin {
-		return false
-	}
-	if desired.NodePool != "" && desired.NodePool != actual.NodePool {
-		return false
-	}
-	if len(desired.RequestedCapabilities) > 0 && !reflect.DeepEqual(desired.RequestedCapabilities, actual.RequestedCapabilities) {
-		return false
-	}
-	if len(desired.Parameters) > 0 && !reflect.DeepEqual(desired.Parameters, actual.Parameters) {
-		return false
-	}
-	return true
-}
-
-func csiVolumeEquivalent(desired, actual *api.CSIVolume) bool {
-	if desired == nil || actual == nil || desired.Name != actual.Name {
-		return false
-	}
-	if desired.ExternalID != "" && desired.ExternalID != actual.ExternalID {
-		return false
-	}
-	if desired.AccessMode != "" && desired.AccessMode != actual.AccessMode {
-		return false
-	}
-	if desired.AttachmentMode != "" && desired.AttachmentMode != actual.AttachmentMode {
-		return false
-	}
-	if desired.PluginID != "" && desired.PluginID != actual.PluginID {
-		return false
-	}
-	if desired.MountOptions != nil && !reflect.DeepEqual(desired.MountOptions, actual.MountOptions) {
-		return false
-	}
-	if len(desired.Parameters) > 0 && !reflect.DeepEqual(desired.Parameters, actual.Parameters) {
-		return false
-	}
-	if len(desired.Context) > 0 && !reflect.DeepEqual(desired.Context, actual.Context) {
-		return false
-	}
-	if len(desired.RequestedCapabilities) > 0 && !reflect.DeepEqual(desired.RequestedCapabilities, actual.RequestedCapabilities) {
-		return false
-	}
-	return true
-}
-
-func managedResourceExists(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (bool, error) {
-	switch resource.Kind {
-	case "job":
-		status, err := client.JobStatus(ctx, tracked.NomadID.String)
-		return status != nil && status.Exists, err
-	case "volume":
-		drifted, present, err := managedVolumeDrifted(ctx, client, resource, tracked)
-		return present && !drifted, err
-	case "acl_policy":
-		policy, err := client.ObserveACLPolicy(ctx, resource.Name)
-		if err != nil || policy == nil {
-			return false, err
-		}
-		desired, err := manifest.CompileACLPolicy(resource)
-		if err != nil {
-			return false, err
-		}
-		return policy.Description == desired.Description && strings.TrimSpace(policy.Rules) == strings.TrimSpace(desired.Rules), nil
-	default:
-		return false, fmt.Errorf("resource %q cannot be observed", resource.Address)
-	}
+func (m *Manager) recordManagedResourceFailure(ctx context.Context, repoID int64, snapshot *repo.Snapshot, resource manifest.Resource, tracked storage.ManagedResource, failureHash, manifestHash string, err error, phase string) error {
+	_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
+		RepoID:       repoID,
+		Address:      resource.Address,
+		Kind:         resource.Kind,
+		SourcePath:   resource.SourcePath,
+		NomadID:      tracked.NomadID.String,
+		Namespace:    tracked.Namespace.String,
+		ContentHash:  failureHash,
+		ManifestHash: manifestHash,
+		LastCommit:   snapshot.CommitHash,
+		Status:       "failed",
+		LastError:    err.Error(),
+		DeleteMode:   string(resource.DeleteMode),
+		Subtype:      tracked.Subtype.String,
+		DependsOn:    encodedDependencies(resource),
+	})
+	return fmt.Errorf("%s bundle resource %q: %w", phase, resource.Address, err)
 }
 
 func deleteManagedResource(ctx context.Context, client nomadclient.ResourceClient, resource storage.ManagedResource) error {
