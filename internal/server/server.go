@@ -165,6 +165,23 @@ func (s *Server) handleTriggerRepo(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, http.StatusBadRequest, err)
 		return
 	}
+	var req reconcileRequest
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			respondStatus(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if req.DryRun {
+		result, err := s.reconciler.PlanRepo(r.Context(), id)
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+		respondJSON(w, result)
+		return
+	}
 	if err := s.reconciler.ReconcileRepo(r.Context(), id); err != nil {
 		respondErr(w, err)
 		return
@@ -353,6 +370,10 @@ func jobURL(base string, namespace string, jobID string) string {
 	}
 	jobRef := jobID + "@" + namespace
 	return trimmed + "/ui/jobs/" + url.PathEscape(jobRef)
+}
+
+type reconcileRequest struct {
+	DryRun bool `json:"dry_run"`
 }
 
 type createRepoRequest struct {

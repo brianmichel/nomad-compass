@@ -212,6 +212,7 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	add.Flags().Int64Var(&credentialID, "credential-id", 0, "credential ID to use for Git authentication")
 
 	var reconcileID int64
+	var reconcileDryRun bool
 	reconcileCommand := &cobra.Command{
 		Use:   "reconcile",
 		Short: "Trigger reconciliation for one repository",
@@ -221,6 +222,15 @@ func newRepoCommand(state *commandState) *cobra.Command {
 				return errors.New("--id must be greater than zero")
 			}
 			path := "/api/repos/" + strconv.FormatInt(reconcileID, 10) + "/reconcile"
+			if reconcileDryRun {
+				var report PlanReport
+				if err := state.client().post(cmd.Context(), path, reconcileRequest{DryRun: true}, &report); err != nil {
+					return err
+				}
+				return writeValue(state.out, state.format, report, func() error {
+					return writeTextPlan(state.out, report)
+				})
+			}
 			if err := state.client().post(cmd.Context(), path, nil, nil); err != nil {
 				return err
 			}
@@ -229,6 +239,7 @@ func newRepoCommand(state *commandState) *cobra.Command {
 		},
 	}
 	reconcileCommand.Flags().Int64Var(&reconcileID, "id", 0, "repository ID")
+	reconcileCommand.Flags().BoolVar(&reconcileDryRun, "dry-run", false, "show the live plan without applying changes")
 
 	var planID int64
 	planCommand := &cobra.Command{
@@ -782,6 +793,10 @@ type credentialResponse struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+type reconcileRequest struct {
+	DryRun bool `json:"dry_run"`
 }
 
 type createRepoRequest struct {
