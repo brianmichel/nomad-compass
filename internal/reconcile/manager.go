@@ -15,6 +15,7 @@ import (
 
 	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
+	bundleplan "github.com/brianmichel/nomad-compass/internal/plan"
 	"github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
@@ -95,24 +96,7 @@ func (m *Manager) reconcileAll(ctx context.Context) error {
 }
 
 func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Repository) error {
-	var cred *storage.Credential
-	var payload *storage.CredentialPayload
-	if repoRecord.CredentialID.Valid {
-		var err error
-		cred, err = m.creds.Get(ctx, repoRecord.CredentialID.Int64)
-		if err != nil {
-			return err
-		}
-		if cred == nil {
-			return errors.New("linked credential not found")
-		}
-		payload, err = m.creds.DecryptPayload(cred)
-		if err != nil {
-			return err
-		}
-	}
-
-	snapshot, err := m.git.Sync(ctx, *repoRecord, cred, payload)
+	snapshot, err := m.syncRepo(ctx, repoRecord)
 	if err != nil {
 		// Partial failures should still record the poll event
 		_ = m.repos.UpdatePollTimestamp(ctx, repoRecord.ID)
@@ -141,6 +125,111 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	}
 
 	return nil
+}
+
+func (m *Manager) syncRepo(ctx context.Context, repoRecord *storage.Repository) (*repo.Snapshot, error) {
+	if repoRecord == nil {
+		return nil, errors.New("repository is required")
+	}
+	var cred *storage.Credential
+	var payload *storage.CredentialPayload
+	if repoRecord.CredentialID.Valid {
+		var err error
+		cred, err = m.creds.Get(ctx, repoRecord.CredentialID.Int64)
+		if err != nil {
+			return nil, err
+		}
+		if cred == nil {
+			return nil, errors.New("linked credential not found")
+		}
+		payload, err = m.creds.DecryptPayload(cred)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m.git.Sync(ctx, *repoRecord, cred, payload)
+}
+
+// PlanRepo returns a read-only plan for the bundle currently in a repository.
+// Git synchronization updates only the local checkout; this method does not
+// write Compass tracking state or mutate Nomad.
+func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Report, error) {
+	repoRecord, err := m.repos.Get(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	if repoRecord == nil {
+		return nil, errors.New("repository not found")
+	}
+	snapshot, err := m.syncRepo(ctx, repoRecord)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.Bundle == nil {
+		return nil, errors.New("repository does not contain a Compass bundle")
+	}
+	ordered, err := snapshot.Bundle.OrderedResources()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBundleResources(ordered); err != nil {
+		return nil, err
+	}
+	if m.managed == nil {
+		return nil, errors.New("managed resource store is required for bundle planning")
+	}
+	tracked, err := m.managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		return nil, err
+	}
+	var resourceClient nomadclient.ResourceClient
+	if len(tracked) > 0 {
+		resourceClient, _ = m.nomad.(nomadclient.ResourceClient)
+	}
+	result, err := bundleplan.CompareTracked(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
+		if resource.Kind == "job" {
+			status, err := m.nomad.JobStatus(ctx, tracked.NomadID.String)
+			if err != nil || status == nil || !status.Exists {
+				return bundleplan.Observation{Present: status != nil && status.Exists}, err
+			}
+			source, err := manifest.NativeJobSource(resource)
+			if err != nil {
+				return bundleplan.Observation{}, err
+			}
+			job, _, err := parseJob(resource.SourcePath, source)
+			if err != nil {
+				return bundleplan.Observation{}, err
+			}
+			job.ID = &tracked.NomadID.String
+			jobPlan, err := m.nomad.PlanJob(ctx, job)
+			if err != nil {
+				return bundleplan.Observation{}, err
+			}
+			return bundleplan.Observation{Present: true, Matches: !jobPlanHasChanges(jobPlan)}, nil
+		}
+		if resourceClient == nil {
+			return bundleplan.Observation{}, errors.New("Nomad client does not support bundle resources")
+		}
+		if resource.Kind == "volume" {
+			drifted, present, err := managedVolumeDrifted(ctx, resourceClient, resource, tracked)
+			return bundleplan.Observation{Present: present, Matches: present && !drifted}, err
+		}
+		policy, err := resourceClient.ObserveACLPolicy(ctx, resource.Name)
+		if err != nil || policy == nil {
+			return bundleplan.Observation{Present: policy != nil}, err
+		}
+		desiredPolicy, err := manifest.CompileACLPolicy(resource)
+		if err != nil {
+			return bundleplan.Observation{}, err
+		}
+		matches := policy.Description == desiredPolicy.Description && strings.TrimSpace(policy.Rules) == strings.TrimSpace(desiredPolicy.Rules)
+		return bundleplan.Observation{Present: true, Matches: matches}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	result.Revision = snapshot.CommitHash
+	return &result, nil
 }
 
 func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, job *api.Job, submission *api.JobSubmission) (string, error) {
