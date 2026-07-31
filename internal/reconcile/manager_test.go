@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/nomad/api"
@@ -182,11 +183,42 @@ func newBundleManager(t *testing.T) (*Manager, *storage.Repository, *storage.Man
 	}
 	fake := &fakeNomad{}
 	return &Manager{
+		repos:   repoStore,
 		files:   storage.NewRepoFileStore(db),
 		managed: storage.NewManagedResourceStore(db),
 		nomad:   fake,
 		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, repoRecord, storage.NewManagedResourceStore(db), fake
+}
+
+func TestProtectedResourceLifecycleRequiresExplicitAction(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, _ := newBundleManager(t)
+	if err := managed.Upsert(ctx, storage.ManagedResourceInput{
+		RepoID:     repoRecord.ID,
+		Address:    "volume.legacy",
+		Kind:       "volume",
+		NomadID:    "legacy-id",
+		Status:     "protected",
+		DeleteMode: string(manifest.DeleteModeProtect),
+	}); err != nil {
+		t.Fatalf("upsert protected resource: %v", err)
+	}
+
+	protected, err := manager.ListProtectedResources(ctx, repoRecord.ID)
+	if err != nil || len(protected) != 1 || protected[0].Address != "volume.legacy" {
+		t.Fatalf("unexpected protected resources: %v %#v", err, protected)
+	}
+	if err := manager.DeleteRepository(ctx, repoRecord.ID, false); err == nil || !strings.Contains(err.Error(), "protected resource") {
+		t.Fatalf("expected repository deletion guard, got %v", err)
+	}
+	if err := manager.ForgetProtectedResource(ctx, repoRecord.ID, "volume.legacy"); err != nil {
+		t.Fatalf("forget protected resource: %v", err)
+	}
+	protected, err = manager.ListProtectedResources(ctx, repoRecord.ID)
+	if err != nil || len(protected) != 0 {
+		t.Fatalf("protected resource was not forgotten: %v %#v", err, protected)
+	}
 }
 
 func TestBundleJobIdentitySurvivesBundlePathChange(t *testing.T) {

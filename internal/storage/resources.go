@@ -81,12 +81,13 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 	var resources []ManagedResource
 	for rows.Next() {
 		var resource ManagedResource
+		var sourcePath sql.NullString
 		if err := rows.Scan(
 			&resource.ID,
 			&resource.RepoID,
 			&resource.Address,
 			&resource.Kind,
-			&resource.SourcePath,
+			&sourcePath,
 			&resource.NomadID,
 			&resource.Namespace,
 			&resource.ContentHash,
@@ -100,6 +101,7 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 		); err != nil {
 			return nil, err
 		}
+		resource.SourcePath = sourcePath.String
 		resources = append(resources, resource)
 	}
 	return resources, rows.Err()
