@@ -23,7 +23,13 @@ func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/repos":
 			_ = json.NewEncoder(w).Encode(repositoryResponse{ID: 8, Name: "new-repo"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/repos/8/reconcile":
-			w.WriteHeader(http.StatusAccepted)
+			var request reconcileRequest
+			_ = json.NewDecoder(r.Body).Decode(&request)
+			if request.DryRun {
+				_ = json.NewEncoder(w).Encode(PlanReport{Bundle: "apps", Revision: "a1b2c3d", Summary: PlanSummary{Unchanged: 1}})
+			} else {
+				w.WriteHeader(http.StatusAccepted)
+			}
 		case r.Method == http.MethodGet && r.URL.Path == "/api/repos/8/plan":
 			_ = json.NewEncoder(w).Encode(PlanReport{Bundle: "apps", Revision: "a1b2c3d", Summary: PlanSummary{Unchanged: 1}})
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/repos/8":
@@ -61,6 +67,13 @@ func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
 	if err := Run(context.Background(), []string{"--server", server.URL, "repo", "reconcile", "--id", "8"}, nil, &bytes.Buffer{}, nil); err != nil {
 		t.Fatalf("repo reconcile: %v", err)
 	}
+	var dryRunOutput bytes.Buffer
+	if err := Run(context.Background(), []string{"--server", server.URL, "--format", "json", "repo", "reconcile", "--id", "8", "--dry-run"}, nil, &dryRunOutput, nil); err != nil {
+		t.Fatalf("repo reconcile dry-run: %v", err)
+	}
+	if !strings.Contains(dryRunOutput.String(), `"revision": "a1b2c3d"`) {
+		t.Fatalf("unexpected dry-run output: %s", dryRunOutput.String())
+	}
 	var planOutput bytes.Buffer
 	if err := Run(context.Background(), []string{"--server", server.URL, "--format", "json", "repo", "plan", "--id", "8"}, nil, &planOutput, nil); err != nil {
 		t.Fatalf("repo plan: %v", err)
@@ -76,6 +89,7 @@ func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
 		"GET /api/status",
 		"GET /api/repos",
 		"POST /api/repos",
+		"POST /api/repos/8/reconcile",
 		"POST /api/repos/8/reconcile",
 		"GET /api/repos/8/plan",
 		"DELETE /api/repos/8",

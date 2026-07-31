@@ -89,6 +89,7 @@ nomad-compass repo orphan list --id 1
 nomad-compass repo orphan forget --id 1 --address volume.legacy --yes
 nomad-compass repo orphan delete --id 1 --address volume.legacy --yes
 nomad-compass repo reconcile --id 1
+nomad-compass repo reconcile --id 1 --dry-run
 nomad-compass repo delete --id 1 --unschedule --yes
 nomad-compass credential list
 nomad-compass credential add --name github --type https-token --token "$GITHUB_TOKEN"
