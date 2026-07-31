@@ -21,9 +21,12 @@ import (
 type managedResourceAdapter interface {
 	Kind() string
 	Validate(manifest.Resource) error
+	Lookup(context.Context, nomadclient.ResourceLookup, manifest.Resource) (bool, error)
 	Observe(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) (plan.Observation, error)
-	Apply(context.Context, nomadclient.ResourceClient, manifest.Resource) (managedResourceResult, error)
+	Replace(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) error
+	Apply(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) (managedResourceResult, error)
 	Adopt(context.Context, nomadclient.ResourceLookup, manifest.Resource) (managedResourceResult, error)
+	Delete(context.Context, nomadclient.ResourceClient, storage.ManagedResource) error
 }
 
 type managedResourceResult struct {
@@ -53,15 +56,49 @@ func (volumeAdapter) Validate(resource manifest.Resource) error {
 	return nil
 }
 
+func (volumeAdapter) Lookup(ctx context.Context, lookup nomadclient.ResourceLookup, resource manifest.Resource) (bool, error) {
+	spec, err := manifest.CompileVolume(resource)
+	if err != nil {
+		return false, err
+	}
+	if spec.Type == "host" {
+		volume, err := lookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
+		return volume != nil, err
+	}
+	volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+	return volume != nil, err
+}
+
 func (volumeAdapter) Observe(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (plan.Observation, error) {
 	drifted, present, err := observeVolumeDrift(ctx, client, resource, tracked)
 	return plan.Observation{Present: present, Matches: present && !drifted}, err
 }
 
-func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource) (managedResourceResult, error) {
+func (volumeAdapter) Replace(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) error {
+	if resource.DeleteMode != manifest.DeleteModeAllow {
+		return fmt.Errorf("volume changes are protected; use a new resource address or set delete = %q to allow replacement", manifest.DeleteModeAllow)
+	}
+	if err := (volumeAdapter{}).Delete(ctx, client, tracked); err != nil {
+		return fmt.Errorf("replace volume %q: delete existing volume: %w", resource.Address, err)
+	}
+	return nil
+}
+
+func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (managedResourceResult, error) {
 	spec, err := manifest.CompileVolume(resource)
 	if err != nil {
 		return managedResourceResult{}, err
+	}
+	if tracked.Address == "" {
+		if lookup, ok := client.(nomadclient.ResourceLookup); ok {
+			exists, err := (volumeAdapter{}).Lookup(ctx, lookup, resource)
+			if err != nil {
+				return managedResourceResult{}, err
+			}
+			if exists {
+				return managedResourceResult{}, fmt.Errorf("volume %q already exists but is not managed by this repository", resource.Name)
+			}
+		}
 	}
 	switch spec.Type {
 	case "host":
@@ -88,6 +125,13 @@ func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClien
 	default:
 		return managedResourceResult{}, fmt.Errorf("volume %q has unsupported type %q", resource.Address, spec.Type)
 	}
+}
+
+func (volumeAdapter) Delete(ctx context.Context, client nomadclient.ResourceClient, resource storage.ManagedResource) error {
+	if resource.Subtype.Valid && resource.Subtype.String == "csi" {
+		return client.DeleteCSIVolume(ctx, resource.NomadID.String, resource.Namespace.String, false)
+	}
+	return client.DeleteHostVolume(ctx, resource.NomadID.String, resource.Namespace.String, false)
 }
 
 func (volumeAdapter) Adopt(ctx context.Context, lookup nomadclient.ResourceLookup, resource manifest.Resource) (managedResourceResult, error) {
@@ -132,6 +176,11 @@ func (aclPolicyAdapter) Validate(resource manifest.Resource) error {
 	return nil
 }
 
+func (aclPolicyAdapter) Lookup(ctx context.Context, lookup nomadclient.ResourceLookup, resource manifest.Resource) (bool, error) {
+	policy, err := lookup.ObserveACLPolicy(ctx, resource.Name)
+	return policy != nil, err
+}
+
 func (aclPolicyAdapter) Observe(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, _ storage.ManagedResource) (plan.Observation, error) {
 	policy, err := client.ObserveACLPolicy(ctx, resource.Name)
 	if err != nil || policy == nil {
@@ -145,15 +194,32 @@ func (aclPolicyAdapter) Observe(ctx context.Context, client nomadclient.Resource
 	return plan.Observation{Present: true, Matches: matches}, nil
 }
 
-func (aclPolicyAdapter) Apply(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource) (managedResourceResult, error) {
+func (aclPolicyAdapter) Replace(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) error {
+	return nil
+}
+
+func (aclPolicyAdapter) Apply(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (managedResourceResult, error) {
 	policy, err := manifest.CompileACLPolicy(resource)
 	if err != nil {
 		return managedResourceResult{}, err
+	}
+	if tracked.Address == "" {
+		existing, err := client.ObserveACLPolicy(ctx, resource.Name)
+		if err != nil {
+			return managedResourceResult{}, err
+		}
+		if existing != nil {
+			return managedResourceResult{}, fmt.Errorf("ACL policy %q already exists but is not managed by this repository", resource.Name)
+		}
 	}
 	if err := client.ApplyACLPolicy(ctx, policy); err != nil {
 		return managedResourceResult{}, err
 	}
 	return managedResourceResult{NomadID: resource.Name}, nil
+}
+
+func (aclPolicyAdapter) Delete(ctx context.Context, client nomadclient.ResourceClient, resource storage.ManagedResource) error {
+	return client.DeleteACLPolicy(ctx, resource.NomadID.String)
 }
 
 func (aclPolicyAdapter) Adopt(ctx context.Context, lookup nomadclient.ResourceLookup, resource manifest.Resource) (managedResourceResult, error) {
