@@ -43,6 +43,31 @@ func TestCompareTrackedUsesLiveStateAndProtection(t *testing.T) {
 	}
 }
 
+func TestCompareTrackedReportsUnmanagedCollision(t *testing.T) {
+	bundle, err := manifest.Parse([]byte(`bundle "apps" {
+  resource "job" "worker" {
+    datacenters = ["dc1"]
+  }
+}`), "desired.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse desired bundle: %v", err)
+	}
+	result, err := CompareTrackedWithLookup(context.Background(), bundle, nil,
+		func(context.Context, manifest.Resource, storage.ManagedResource) (Observation, error) {
+			t.Fatal("observer called for an unmanaged resource")
+			return Observation{}, nil
+		},
+		func(_ context.Context, resource manifest.Resource) (bool, error) {
+			return resource.Address == "job.worker", nil
+		})
+	if err != nil {
+		t.Fatalf("compare with lookup: %v", err)
+	}
+	if result.Summary.Conflict != 1 || result.Resources[0].Action != "conflict" {
+		t.Fatalf("unexpected collision result: %+v", result)
+	}
+}
+
 func TestCompareBundlesRemainsOffline(t *testing.T) {
 	previous, err := manifest.Parse([]byte(`bundle "apps" {
   resource "job" "old" { datacenters = ["dc1"] }

@@ -189,7 +189,41 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		return nil, err
 	}
 	resourceClient, _ := m.nomad.(nomadclient.ResourceClient)
-	result, err := bundleplan.CompareTracked(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
+	var lookup bundleplan.Lookup
+	if resourceLookup, ok := m.nomad.(nomadclient.ResourceLookup); ok {
+		lookup = func(ctx context.Context, resource manifest.Resource) (bool, error) {
+			switch resource.Kind {
+			case "job":
+				status, err := m.nomad.JobStatus(ctx, resource.Name)
+				return status != nil && status.Exists, err
+			case "acl_policy":
+				policy, err := resourceLookup.ObserveACLPolicy(ctx, resource.Name)
+				return policy != nil, err
+			case "volume":
+				spec, err := manifest.CompileVolume(resource)
+				if err != nil {
+					return false, err
+				}
+				if spec.Type == "csi" && resourceClient != nil {
+					id := spec.CSI.ID
+					if id == "" {
+						id = resource.Name
+					}
+					volume, err := resourceClient.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
+					return volume != nil, err
+				}
+				if spec.Type == "host" {
+					volume, err := resourceLookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
+					return volume != nil, err
+				}
+				volume, err := resourceLookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+				return volume != nil, err
+			default:
+				return false, nil
+			}
+		}
+	}
+	result, err := bundleplan.CompareTrackedWithLookup(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
 		if resource.Kind == "job" {
 			candidateID := tracked.NomadID.String
 			if candidateID == "" {
@@ -256,7 +290,7 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		}
 		matches := policy.Description == desiredPolicy.Description && strings.TrimSpace(policy.Rules) == strings.TrimSpace(desiredPolicy.Rules)
 		return bundleplan.Observation{Present: true, Matches: matches}, nil
-	})
+	}, lookup)
 	if err != nil {
 		return nil, err
 	}

@@ -513,12 +513,12 @@ func writeTextPlan(out io.Writer, plan PlanReport) error {
 		return err
 	}
 	for _, resource := range plan.Resources {
-		symbol := map[string]string{"create": "+", "update": "~", "delete": "-", "protected": "!", "unchanged": "="}[resource.Action]
+		symbol := map[string]string{"create": "+", "update": "~", "delete": "-", "protected": "!", "unchanged": "=", "conflict": "?"}[resource.Action]
 		line := fmt.Sprintf("%s %s", symbol, resource.Address)
 		if resource.Action == "protected" {
 			line += " deletion protected (" + resource.Reason + ")"
 		} else if resource.Action == "conflict" {
-			line += " " + resource.Reason
+			line += " ownership conflict: " + resource.Reason
 		}
 		if _, err := fmt.Fprintln(out, line); err != nil {
 			return err
@@ -527,7 +527,7 @@ func writeTextPlan(out io.Writer, plan PlanReport) error {
 	if _, err := fmt.Fprintln(out, "\nPlan:"); err != nil {
 		return err
 	}
-	for _, item := range []struct {
+	items := []struct {
 		count int
 		name  string
 	}{
@@ -536,7 +536,12 @@ func writeTextPlan(out io.Writer, plan PlanReport) error {
 		{plan.Summary.Delete, "delete"},
 		{plan.Summary.Protected, "protected"},
 		{plan.Summary.Unchanged, "unchanged"},
-	} {
+		{plan.Summary.Conflict, "conflict"},
+	}
+	for _, item := range items {
+		if item.name == "conflict" && item.count == 0 {
+			continue
+		}
 		if _, err := fmt.Fprintf(out, "  %d %s\n", item.count, item.name); err != nil {
 			return err
 		}
