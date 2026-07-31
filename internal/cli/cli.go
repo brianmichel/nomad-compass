@@ -251,6 +251,32 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	}
 	planCommand.Flags().Int64Var(&planID, "id", 0, "repository ID")
 
+	var adoptID int64
+	var adoptAddress string
+	var adoptConfirm bool
+	adoptCommand := &cobra.Command{
+		Use:   "adopt",
+		Short: "Explicitly adopt an existing matching Nomad resource",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if adoptID <= 0 || strings.TrimSpace(adoptAddress) == "" {
+				return errors.New("--id and --address are required")
+			}
+			if !adoptConfirm {
+				return errors.New("adoption requires --yes")
+			}
+			path := "/api/repos/" + strconv.FormatInt(adoptID, 10) + "/adopt"
+			if err := state.client().post(cmd.Context(), path, orphanActionRequest{Address: adoptAddress}, nil); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(state.out, "adopted resource %s\n", adoptAddress)
+			return err
+		},
+	}
+	adoptCommand.Flags().Int64Var(&adoptID, "id", 0, "repository ID")
+	adoptCommand.Flags().StringVar(&adoptAddress, "address", "", "resource address")
+	adoptCommand.Flags().BoolVar(&adoptConfirm, "yes", false, "confirm ownership adoption")
+
 	var deleteID int64
 	var unschedule, confirm bool
 	deleteCommand := &cobra.Command{
@@ -363,7 +389,7 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	deleteOrphan.Flags().BoolVar(&deleteOrphanConfirm, "yes", false, "confirm Nomad deletion")
 	orphan.AddCommand(listOrphans, forgetOrphan, deleteOrphan)
 
-	repoCommand.AddCommand(list, add, reconcileCommand, planCommand, orphan, deleteCommand)
+	repoCommand.AddCommand(list, add, reconcileCommand, planCommand, adoptCommand, orphan, deleteCommand)
 	return repoCommand
 }
 

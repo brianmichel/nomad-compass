@@ -221,6 +221,102 @@ func TestProtectedResourceLifecycleRequiresExplicitAction(t *testing.T) {
 	}
 }
 
+func TestAdoptBundleResourceRecordsMatchingHostVolumeWithoutMutation(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "data"
+    type = "host"
+    plugin_id = "mkdir"
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	fake.hostVolume = &api.HostVolume{ID: "host-volume-id", Name: "data", PluginID: "mkdir"}
+	if err := manager.adoptBundleResource(ctx, repoRecord.ID, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, "volume.data"); err != nil {
+		t.Fatalf("adopt host volume: %v", err)
+	}
+	resources, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil || len(resources) != 1 || resources[0].NomadID.String != "host-volume-id" {
+		t.Fatalf("unexpected adopted resource: %v %#v", err, resources)
+	}
+	if len(fake.resourceCalls) != 0 {
+		t.Fatalf("adoption mutated Nomad: %v", fake.resourceCalls)
+	}
+}
+
+func TestAdoptBundleResourceRejectsMismatchedHostVolume(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "data"
+    type = "host"
+    plugin_id = "mkdir"
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	fake.hostVolume = &api.HostVolume{ID: "host-volume-id", Name: "data", PluginID: "other"}
+	if err := manager.adoptBundleResource(ctx, repoRecord.ID, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, "volume.data"); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected mismatch error, got %v", err)
+	}
+	resources, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil || len(resources) != 0 {
+		t.Fatalf("mismatched resource was adopted: %v %#v", err, resources)
+	}
+}
+
+func TestAdoptBundleResourceRecordsMatchingJob(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "worker" {
+    datacenters = ["dc1"]
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	fake.jobStatuses = map[string]*nomadclient.JobStatus{"worker": {ID: "worker", Exists: true}}
+	fake.planResponses = map[string]*api.JobPlanResponse{"worker": {}}
+	if err := manager.adoptBundleResource(ctx, repoRecord.ID, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, "job.worker"); err != nil {
+		t.Fatalf("adopt job: %v", err)
+	}
+	resources, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil || len(resources) != 1 || resources[0].NomadID.String != "worker" {
+		t.Fatalf("unexpected adopted job: %v %#v", err, resources)
+	}
+	if fake.registerCalls != 0 {
+		t.Fatalf("adoption registered a job: %d", fake.registerCalls)
+	}
+}
+
+func TestAdoptBundleResourceRejectsJobDrift(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "worker" {
+    datacenters = ["dc1"]
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	fake.jobStatuses = map[string]*nomadclient.JobStatus{"worker": {ID: "worker", Exists: true}}
+	fake.planResponses = map[string]*api.JobPlanResponse{"worker": {Diff: &api.JobDiff{Fields: []*api.FieldDiff{{Name: "datacenters", Old: "dc1", New: "dc2"}}}}}
+	if err := manager.adoptBundleResource(ctx, repoRecord.ID, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, "job.worker"); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected job mismatch error, got %v", err)
+	}
+	resources, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil || len(resources) != 0 {
+		t.Fatalf("drifted job was adopted: %v %#v", err, resources)
+	}
+}
+
 func TestBundleJobIdentitySurvivesBundlePathChange(t *testing.T) {
 	ctx := context.Background()
 	manager, repoRecord, managed, fake := newBundleManager(t)
@@ -1046,6 +1142,17 @@ func (f *fakeNomad) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (
 	}
 	f.hostVolume = &copy
 	return &copy, nil
+}
+
+func (f *fakeNomad) FindHostVolume(_ context.Context, name, _ string) (*api.HostVolume, error) {
+	if f.hostVolume == nil || f.hostVolume.Name != name {
+		return nil, nil
+	}
+	return f.hostVolume, nil
+}
+
+func (f *fakeNomad) FindCSIVolume(context.Context, string, string) (*api.CSIVolume, error) {
+	return nil, nil
 }
 
 func (f *fakeNomad) ObserveHostVolume(_ context.Context, id, _ string) (*api.HostVolume, error) {

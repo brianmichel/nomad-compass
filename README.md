@@ -84,6 +84,7 @@ nomad-compass --format json --server http://127.0.0.1:8080 status
 nomad-compass repo list
 nomad-compass repo add --name homelab --url https://github.com/example/homelab.git --branch main
 nomad-compass repo plan --id 1
+nomad-compass repo adopt --id 1 --address volume.existing --yes
 nomad-compass repo orphan list --id 1
 nomad-compass repo orphan forget --id 1 --address volume.legacy --yes
 nomad-compass repo orphan delete --id 1 --address volume.legacy --yes
