@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -41,6 +42,9 @@ type credentialStore interface {
 type reconcileManager interface {
 	ReconcileRepo(ctx context.Context, repoID int64) error
 	PlanRepo(ctx context.Context, repoID int64) (*plan.Report, error)
+	ListProtectedResources(ctx context.Context, repoID int64) ([]storage.ManagedResource, error)
+	ForgetProtectedResource(ctx context.Context, repoID int64, address string) error
+	DeleteProtectedResource(ctx context.Context, repoID int64, address string) error
 	DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error
 	DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error
 }
@@ -88,6 +92,9 @@ func (s *Server) Handler() http.Handler {
 		api.Post("/repos", s.handleCreateRepo)
 		api.Post("/repos/{id}/reconcile", s.handleTriggerRepo)
 		api.Get("/repos/{id}/plan", s.handlePlanRepo)
+		api.Get("/repos/{id}/orphans", s.handleListOrphans)
+		api.Post("/repos/{id}/orphans/forget", s.handleForgetOrphan)
+		api.Post("/repos/{id}/orphans/delete", s.handleDeleteOrphan)
 		api.Delete("/repos/{id}", s.handleDeleteRepo)
 
 		api.Get("/credentials", s.handleListCredentials)
@@ -179,6 +186,55 @@ func (s *Server) handlePlanRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, result)
+}
+
+func (s *Server) handleListOrphans(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	resources, err := s.reconciler.ListProtectedResources(r.Context(), id)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	result := make([]protectedResourceResponse, 0, len(resources))
+	for _, resource := range resources {
+		result = append(result, newProtectedResourceResponse(resource))
+	}
+	respondJSON(w, result)
+}
+
+func (s *Server) handleForgetOrphan(w http.ResponseWriter, r *http.Request) {
+	s.handleOrphanAction(w, r, false)
+}
+
+func (s *Server) handleDeleteOrphan(w http.ResponseWriter, r *http.Request) {
+	s.handleOrphanAction(w, r, true)
+}
+
+func (s *Server) handleOrphanAction(w http.ResponseWriter, r *http.Request, deleteNomad bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	var req orphanActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Address) == "" {
+		respondStatus(w, http.StatusBadRequest, errors.New("resource address is required"))
+		return
+	}
+	if deleteNomad {
+		err = s.reconciler.DeleteProtectedResource(r.Context(), id, req.Address)
+	} else {
+		err = s.reconciler.ForgetProtectedResource(r.Context(), id, req.Address)
+	}
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	respondStatus(w, http.StatusOK, nil)
 }
 
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +359,10 @@ type createCredentialRequest struct {
 
 type deleteRepoRequest struct {
 	Unschedule bool `json:"unschedule"`
+}
+
+type orphanActionRequest struct {
+	Address string `json:"address"`
 }
 
 type deleteCredentialRequest struct {

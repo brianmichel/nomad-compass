@@ -91,6 +91,7 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 		var resource ManagedResource
 		var sourcePath sql.NullString
 		var resourceDependsOn sql.NullString
+		var sourcePath sql.NullString
 		if err := rows.Scan(
 			&resource.ID,
 			&resource.RepoID,

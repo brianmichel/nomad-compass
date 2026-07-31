@@ -311,6 +311,77 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 	return jobID(job), nil
 }
 
+// ListProtectedResources returns resources that Compass retained after they
+// were removed from a bundle or otherwise require explicit lifecycle action.
+func (m *Manager) ListProtectedResources(ctx context.Context, repoID int64) ([]storage.ManagedResource, error) {
+	if m.managed == nil {
+		return nil, errors.New("managed resource store is required")
+	}
+	resources, err := m.managed.ListByRepo(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	protected := make([]storage.ManagedResource, 0)
+	for _, resource := range resources {
+		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+			protected = append(protected, resource)
+		}
+	}
+	return protected, nil
+}
+
+// ForgetProtectedResource removes Compass ownership metadata without deleting
+// the Nomad resource. This is intentionally explicit because it creates an
+// unmanaged resource by design.
+func (m *Manager) ForgetProtectedResource(ctx context.Context, repoID int64, address string) error {
+	resource, err := m.protectedResource(ctx, repoID, address)
+	if err != nil {
+		return err
+	}
+	if resource.Status != "protected" {
+		return fmt.Errorf("resource %q is not a protected orphan", address)
+	}
+	return m.managed.Delete(ctx, repoID, address)
+}
+
+// DeleteProtectedResource removes a protected orphan from Nomad and Compass.
+func (m *Manager) DeleteProtectedResource(ctx context.Context, repoID int64, address string) error {
+	resource, err := m.protectedResource(ctx, repoID, address)
+	if err != nil {
+		return err
+	}
+	if resource.Status != "protected" {
+		return fmt.Errorf("resource %q is not a protected orphan", address)
+	}
+	if resource.Kind == "job" {
+		if err := m.nomad.DeregisterJob(ctx, resource.NomadID.String, true); err != nil {
+			return err
+		}
+	} else {
+		client, ok := m.nomad.(nomadclient.ResourceClient)
+		if !ok {
+			return errors.New("Nomad client does not support bundle resource cleanup")
+		}
+		if err := deleteManagedResource(ctx, client, resource); err != nil {
+			return err
+		}
+	}
+	return m.managed.Delete(ctx, repoID, address)
+}
+
+func (m *Manager) protectedResource(ctx context.Context, repoID int64, address string) (storage.ManagedResource, error) {
+	resources, err := m.ListProtectedResources(ctx, repoID)
+	if err != nil {
+		return storage.ManagedResource{}, err
+	}
+	for _, resource := range resources {
+		if resource.Address == address {
+			return resource, nil
+		}
+	}
+	return storage.ManagedResource{}, fmt.Errorf("protected resource %q not found", address)
+}
+
 // DeleteRepository removes repository metadata and optionally unschedules jobs.
 func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error {
 	repoRecord, err := m.repos.Get(ctx, repoID)
@@ -319,6 +390,11 @@ func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule
 	}
 	if repoRecord == nil {
 		return errors.New("repository not found")
+	}
+	if protected, err := m.ListProtectedResources(ctx, repoID); err != nil {
+		return err
+	} else if len(protected) > 0 {
+		return fmt.Errorf("repository has %d protected resource(s); use repo orphan list, forget, or delete first", len(protected))
 	}
 
 	if unschedule {

@@ -282,7 +282,94 @@ func newRepoCommand(state *commandState) *cobra.Command {
 	deleteCommand.Flags().BoolVar(&unschedule, "unschedule", false, "remove managed Nomad resources")
 	deleteCommand.Flags().BoolVar(&confirm, "yes", false, "confirm deletion")
 
-	repoCommand.AddCommand(list, add, reconcileCommand, planCommand, deleteCommand)
+	orphan := &cobra.Command{
+		Use:   "orphan",
+		Short: "Inspect and explicitly manage protected bundle resources",
+	}
+	var orphanID int64
+	listOrphans := &cobra.Command{
+		Use:   "list",
+		Short: "List protected resources",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if orphanID <= 0 {
+				return errors.New("--id must be greater than zero")
+			}
+			var resources []protectedResourceResponse
+			path := "/api/repos/" + strconv.FormatInt(orphanID, 10) + "/orphans"
+			if err := state.client().get(cmd.Context(), path, &resources); err != nil {
+				return err
+			}
+			return writeValue(state.out, state.format, resources, func() error {
+				w := tabwriter.NewWriter(state.out, 0, 4, 2, ' ', 0)
+				if _, err := fmt.Fprintln(w, "ADDRESS\tKIND\tSTATUS\tNOMAD ID\tERROR"); err != nil {
+					return err
+				}
+				for _, resource := range resources {
+					if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", resource.Address, resource.Kind, resource.Status, resource.NomadID, resource.LastError); err != nil {
+						return err
+					}
+				}
+				return w.Flush()
+			})
+		},
+	}
+	listOrphans.Flags().Int64Var(&orphanID, "id", 0, "repository ID")
+
+	var forgetID int64
+	var forgetAddress string
+	var forgetConfirm bool
+	forgetOrphan := &cobra.Command{
+		Use:   "forget",
+		Short: "Forget a protected resource without deleting it from Nomad",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if forgetID <= 0 || strings.TrimSpace(forgetAddress) == "" {
+				return errors.New("--id and --address are required")
+			}
+			if !forgetConfirm {
+				return errors.New("forgetting a protected resource requires --yes")
+			}
+			path := "/api/repos/" + strconv.FormatInt(forgetID, 10) + "/orphans/forget"
+			if err := state.client().post(cmd.Context(), path, orphanActionRequest{Address: forgetAddress}, nil); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(state.out, "forgot protected resource %s\n", forgetAddress)
+			return err
+		},
+	}
+	forgetOrphan.Flags().Int64Var(&forgetID, "id", 0, "repository ID")
+	forgetOrphan.Flags().StringVar(&forgetAddress, "address", "", "resource address")
+	forgetOrphan.Flags().BoolVar(&forgetConfirm, "yes", false, "confirm forgetting ownership")
+
+	var deleteOrphanID int64
+	var deleteOrphanAddress string
+	var deleteOrphanConfirm bool
+	deleteOrphan := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a protected resource from Nomad and Compass",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if deleteOrphanID <= 0 || strings.TrimSpace(deleteOrphanAddress) == "" {
+				return errors.New("--id and --address are required")
+			}
+			if !deleteOrphanConfirm {
+				return errors.New("deleting a protected resource requires --yes")
+			}
+			path := "/api/repos/" + strconv.FormatInt(deleteOrphanID, 10) + "/orphans/delete"
+			if err := state.client().post(cmd.Context(), path, orphanActionRequest{Address: deleteOrphanAddress}, nil); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(state.out, "deleted protected resource %s\n", deleteOrphanAddress)
+			return err
+		},
+	}
+	deleteOrphan.Flags().Int64Var(&deleteOrphanID, "id", 0, "repository ID")
+	deleteOrphan.Flags().StringVar(&deleteOrphanAddress, "address", "", "resource address")
+	deleteOrphan.Flags().BoolVar(&deleteOrphanConfirm, "yes", false, "confirm Nomad deletion")
+	orphan.AddCommand(listOrphans, forgetOrphan, deleteOrphan)
+
+	repoCommand.AddCommand(list, add, reconcileCommand, planCommand, orphan, deleteCommand)
 	return repoCommand
 }
 
@@ -698,6 +785,20 @@ type createRepoRequest struct {
 
 type deleteRepoRequest struct {
 	Unschedule bool `json:"unschedule"`
+}
+
+type protectedResourceResponse struct {
+	Address    string `json:"address"`
+	Kind       string `json:"kind"`
+	NomadID    string `json:"nomad_id,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	Status     string `json:"status"`
+	DeleteMode string `json:"delete_mode"`
+	LastError  string `json:"last_error,omitempty"`
+}
+
+type orphanActionRequest struct {
+	Address string `json:"address"`
 }
 
 type createCredentialRequest struct {

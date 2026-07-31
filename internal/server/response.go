@@ -86,6 +86,28 @@ type repositoryJobResponse struct {
 	Allocations          []nomadclient.AllocationStatus `json:"allocations,omitempty"`
 }
 
+type protectedResourceResponse struct {
+	Address    string  `json:"address"`
+	Kind       string  `json:"kind"`
+	NomadID    *string `json:"nomad_id,omitempty"`
+	Namespace  *string `json:"namespace,omitempty"`
+	Status     string  `json:"status"`
+	DeleteMode string  `json:"delete_mode"`
+	LastError  *string `json:"last_error,omitempty"`
+}
+
+func newProtectedResourceResponse(resource storage.ManagedResource) protectedResourceResponse {
+	return protectedResourceResponse{
+		Address:    resource.Address,
+		Kind:       resource.Kind,
+		NomadID:    nullableString(resource.NomadID),
+		Namespace:  nullableString(resource.Namespace),
+		Status:     resource.Status,
+		DeleteMode: resource.DeleteMode,
+		LastError:  nullableString(resource.LastError),
+	}
+}
+
 func newRepositoryJobResponse(file storage.RepoFile) repositoryJobResponse {
 	return repositoryJobResponse{
 		Path:       file.Path,
