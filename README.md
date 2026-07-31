@@ -136,7 +136,7 @@ bundle "example" {
 }
 ```
 
-Resources can declare Compass-owned dependencies and deletion behavior with `depends_on` and `delete = "protect"`. Jobs, host/CSI volumes, and ACL policies are currently wired into reconciliation; the parser also reserves names for future resources such as namespaces, node pools, and quotas. Volume resources require the matching host-volume or CSI ACL capabilities, and ACL policy resources require a management-capable bootstrap token. See `example/homelab-compass.bundle.hcl` for a real homelab-shaped example.
+Resources can declare Compass-owned dependencies and deletion behavior with `depends_on` and `delete = "protect"`. Jobs, host/CSI volumes, and ACL policies are currently wired into reconciliation; the parser also reserves names for future resources such as namespaces, node pools, and quotas. Volume and ACL policy resources are protected from deletion by default; use `delete = "allow"` only when replacement or removal is intentional. Resource addresses (`kind.name`) are the stable Compass identities, independent of the bundle file path. Volume body changes require an explicitly allowed replacement. Volume resources require the matching host-volume or CSI ACL capabilities, and ACL policy resources require a management-capable bootstrap token. See `example/homelab-compass.bundle.hcl` for a real homelab-shaped example.
 
 ### Repository onboarding workflow
 
@@ -160,6 +160,18 @@ Run the Go test suite:
 
 ```bash
 go test ./...
+```
+
+Run the isolated Git → Compass → Nomad E2E test with a Lima/Colima-backed Docker daemon:
+
+```bash
+mise run e2e-local
+```
+
+To leave the local Nomad and Compass processes running for manual inspection:
+
+```bash
+COMPASS_E2E_KEEP_RUNNING=1 mise run e2e-local
 ```
 
 Vue component tests are not included yet. The backend carries the bulk of logic and has targeted unit coverage.

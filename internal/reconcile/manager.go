@@ -416,6 +416,9 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 		return errors.New("bundle snapshot is required")
 	}
 
+	if m.managed == nil {
+		return errors.New("managed resource store is required for bundle resources")
+	}
 	ordered, err := snapshot.Bundle.OrderedResources()
 	if err != nil {
 		return err
@@ -428,9 +431,6 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 		}
 		if resource.Kind != "volume" && resource.Kind != "acl_policy" {
 			return fmt.Errorf("bundle resource %q is not supported yet", resource.Address)
-		}
-		if m.managed == nil {
-			return errors.New("managed resource store is required for bundle resources")
 		}
 		if resourceClient == nil {
 			var ok bool
@@ -464,20 +464,8 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 		}
 	}
 
-	jobFiles, err := snapshotJobFiles(snapshot)
-	if err != nil {
+	if err := m.ensureBundleJobs(ctx, repoRecord, snapshot, ordered, tracked); err != nil {
 		return err
-	}
-	if len(jobFiles) > 0 {
-		jobSnapshot := &repo.Snapshot{
-			CommitHash:   snapshot.CommitHash,
-			CommitAuthor: snapshot.CommitAuthor,
-			CommitTitle:  snapshot.CommitTitle,
-			JobFiles:     jobFiles,
-		}
-		if err := m.ensureJobs(ctx, repoRecord, jobSnapshot, commitChanged); err != nil {
-			return err
-		}
 	}
 
 	desired := make(map[string]struct{}, len(snapshot.Bundle.Resources))
@@ -515,6 +503,89 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 	return nil
 }
 
+func (m *Manager) ensureBundleJobs(ctx context.Context, repoRecord *storage.Repository, snapshot *repo.Snapshot, ordered []manifest.Resource, tracked map[string]storage.ManagedResource) error {
+	for _, resource := range ordered {
+		if resource.Kind != "job" {
+			continue
+		}
+
+		source, err := manifest.NativeJobSource(resource)
+		if err != nil {
+			return err
+		}
+		job, submission, err := parseJob(resource.Address, source)
+		if err != nil {
+			return fmt.Errorf("parse bundle job %q: %w", resource.Address, err)
+		}
+
+		hashBytes := sha256.Sum256(resource.Body)
+		hash := hex.EncodeToString(hashBytes[:])
+		existing := tracked[resource.Address]
+		jobFile := repo.JobFile{Path: resource.Address, Content: source, DeleteMode: string(resource.DeleteMode)}
+		trackedJobID := existing.NomadID.String
+
+		if existing.Address != "" && trackedJobID != "" {
+			status, statusErr := m.nomad.JobStatus(ctx, trackedJobID)
+			if statusErr != nil {
+				if m.logger != nil {
+					m.logger.Warn("bundle job status check failed", "repo", repoRecord.Name, "job", resource.Address, "error", statusErr)
+				}
+			} else if status != nil && status.Exists {
+				job.ID = &trackedJobID
+				annotateJob(job, repoRecord, jobFile, snapshot, false)
+				plan, planErr := m.nomad.PlanJob(ctx, job)
+				if planErr == nil && !jobPlanHasChanges(plan) {
+					if err := m.managed.Upsert(ctx, storage.ManagedResourceInput{
+						RepoID:      repoRecord.ID,
+						Address:     resource.Address,
+						Kind:        resource.Kind,
+						SourcePath:  resource.SourcePath,
+						NomadID:     trackedJobID,
+						ContentHash: hash,
+						LastCommit:  snapshot.CommitHash,
+						Status:      "applied",
+						DeleteMode:  string(resource.DeleteMode),
+					}); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+		}
+
+		appliedID, applyErr := m.applyJob(ctx, repoRecord, jobFile, snapshot, job, submission)
+		if applyErr != nil {
+			_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
+				RepoID:      repoRecord.ID,
+				Address:     resource.Address,
+				Kind:        resource.Kind,
+				SourcePath:  resource.SourcePath,
+				NomadID:     trackedJobID,
+				ContentHash: hash,
+				LastCommit:  snapshot.CommitHash,
+				Status:      "failed",
+				LastError:   applyErr.Error(),
+				DeleteMode:  string(resource.DeleteMode),
+			})
+			return fmt.Errorf("apply bundle job %q: %w", resource.Address, applyErr)
+		}
+		if err := m.managed.Upsert(ctx, storage.ManagedResourceInput{
+			RepoID:      repoRecord.ID,
+			Address:     resource.Address,
+			Kind:        resource.Kind,
+			SourcePath:  resource.SourcePath,
+			NomadID:     appliedID,
+			ContentHash: hash,
+			LastCommit:  snapshot.CommitHash,
+			Status:      "applied",
+			DeleteMode:  string(resource.DeleteMode),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Manager) managedResources(ctx context.Context, repoID int64) (map[string]storage.ManagedResource, error) {
 	resources, err := m.managed.ListByRepo(ctx, repoID)
 	if err != nil {
@@ -525,6 +596,16 @@ func (m *Manager) managedResources(ctx context.Context, repoID int64) (map[strin
 		result[resource.Address] = resource
 	}
 	return result, nil
+}
+
+func (m *Manager) replaceManagedVolume(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) error {
+	if resource.DeleteMode != manifest.DeleteModeAllow {
+		return fmt.Errorf("volume changes are protected; use a new resource address or set delete = %q to allow replacement", manifest.DeleteModeAllow)
+	}
+	if err := deleteManagedResource(ctx, client, tracked); err != nil {
+		return fmt.Errorf("replace volume %q: delete existing volume: %w", resource.Address, err)
+	}
+	return nil
 }
 
 func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) error {
@@ -541,7 +622,37 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 	}
 
 	var nomadID, namespace string
+	failureHash := hash
+	if tracked.ContentHash.Valid {
+		failureHash = tracked.ContentHash.String
+	}
 	var err error
+	if resource.Kind == "volume" && tracked.Address != "" && tracked.ContentHash.Valid && tracked.ContentHash.String != hash {
+		if _, compileErr := manifest.CompileVolume(resource); compileErr != nil {
+			err = compileErr
+		} else {
+			err = m.replaceManagedVolume(ctx, client, resource, tracked)
+		}
+	}
+	if err != nil {
+		// Preserve the existing Nomad identity when a protected or failed
+		// replacement remains in place so the next reconcile can recover.
+		_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
+			RepoID:      repoID,
+			Address:     resource.Address,
+			Kind:        resource.Kind,
+			SourcePath:  resource.SourcePath,
+			NomadID:     tracked.NomadID.String,
+			Namespace:   tracked.Namespace.String,
+			ContentHash: failureHash,
+			LastCommit:  snapshot.CommitHash,
+			Status:      "failed",
+			LastError:   err.Error(),
+			DeleteMode:  string(resource.DeleteMode),
+			Subtype:     tracked.Subtype.String,
+		})
+		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
+	}
 	switch resource.Kind {
 	case "volume":
 		spec, compileErr := manifest.CompileVolume(resource)
@@ -577,11 +688,14 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			Address:     resource.Address,
 			Kind:        resource.Kind,
 			SourcePath:  resource.SourcePath,
-			ContentHash: hash,
+			NomadID:     tracked.NomadID.String,
+			Namespace:   tracked.Namespace.String,
+			ContentHash: failureHash,
 			LastCommit:  snapshot.CommitHash,
 			Status:      "failed",
 			LastError:   err.Error(),
 			DeleteMode:  string(resource.DeleteMode),
+			Subtype:     tracked.Subtype.String,
 		})
 		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
 	}
@@ -608,6 +722,9 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 
 func managedResourceExists(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (bool, error) {
 	switch resource.Kind {
+	case "job":
+		status, err := client.JobStatus(ctx, tracked.NomadID.String)
+		return status != nil && status.Exists, err
 	case "volume":
 		if tracked.Subtype.Valid && tracked.Subtype.String == "csi" {
 			volume, err := client.ObserveCSIVolume(ctx, tracked.NomadID.String, tracked.Namespace.String)
@@ -632,6 +749,8 @@ func managedResourceExists(ctx context.Context, client nomadclient.ResourceClien
 
 func deleteManagedResource(ctx context.Context, client nomadclient.ResourceClient, resource storage.ManagedResource) error {
 	switch resource.Kind {
+	case "job":
+		return client.DeregisterJob(ctx, resource.NomadID.String, true)
 	case "volume":
 		if resource.Subtype.Valid && resource.Subtype.String == "csi" {
 			return client.DeleteCSIVolume(ctx, resource.NomadID.String, resource.Namespace.String, false)
@@ -648,26 +767,10 @@ func snapshotJobFiles(snapshot *repo.Snapshot) ([]repo.JobFile, error) {
 	if snapshot == nil {
 		return nil, errors.New("snapshot is required")
 	}
-	if snapshot.Bundle == nil {
-		return snapshot.JobFiles, nil
+	if snapshot.Bundle != nil {
+		return nil, errors.New("bundle jobs use managed-resource tracking")
 	}
-
-	jobFiles := make([]repo.JobFile, 0, len(snapshot.Bundle.Resources))
-	for _, resource := range snapshot.Bundle.Resources {
-		if resource.Kind != "job" {
-			continue
-		}
-		source, err := manifest.NativeJobSource(resource)
-		if err != nil {
-			return nil, err
-		}
-		jobFiles = append(jobFiles, repo.JobFile{
-			Path:       resource.SourcePath + "#" + resource.Address,
-			Content:    source,
-			DeleteMode: string(resource.DeleteMode),
-		})
-	}
-	return jobFiles, nil
+	return snapshot.JobFiles, nil
 }
 
 func jobPlanHasChanges(resp *api.JobPlanResponse) bool {

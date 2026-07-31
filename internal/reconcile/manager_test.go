@@ -34,7 +34,7 @@ func TestParseJob(t *testing.T) {
 	}
 }
 
-func TestSnapshotJobFilesUsesEmbeddedBundle(t *testing.T) {
+func TestNativeJobSourceUsesStableBundleAddress(t *testing.T) {
 	bundle, err := manifest.Parse([]byte(`bundle "demo" {
   resource "job" "api" {
     datacenters = ["dc1"]
@@ -44,17 +44,17 @@ func TestSnapshotJobFilesUsesEmbeddedBundle(t *testing.T) {
 		t.Fatalf("parse bundle: %v", err)
 	}
 
-	files, err := snapshotJobFiles(&repomodel.Snapshot{Bundle: bundle})
+	var resource manifest.Resource
+	for _, candidate := range bundle.Resources {
+		if candidate.Address == "job.api" {
+			resource = candidate
+		}
+	}
+	source, err := manifest.NativeJobSource(resource)
 	if err != nil {
-		t.Fatalf("build bundle job files: %v", err)
+		t.Fatalf("build native job source: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("expected one embedded job, got %d", len(files))
-	}
-	if files[0].Path != ".nomad/compass.bundle.hcl#job.api" {
-		t.Fatalf("unexpected embedded job path %q", files[0].Path)
-	}
-	job, _, err := parseJob(files[0].Path, files[0].Content)
+	job, _, err := parseJob(resource.Address, source)
 	if err != nil {
 		t.Fatalf("parse embedded job: %v", err)
 	}
@@ -136,8 +136,8 @@ func TestEnsureBundleAppliesResourcesInDependencyOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list managed resources: %v", err)
 	}
-	if len(tracked) != 2 {
-		t.Fatalf("expected two non-job resources tracked, got %d", len(tracked))
+	if len(tracked) != 3 {
+		t.Fatalf("expected all bundle resources tracked, got %d", len(tracked))
 	}
 
 	remainingBundle, err := manifest.Parse([]byte(`bundle "compass" {
@@ -156,6 +156,145 @@ func TestEnsureBundleAppliesResourcesInDependencyOrder(t *testing.T) {
 	}
 	if slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") || slices.Contains(fake.resourceCalls, "delete-policy:compass") {
 		t.Fatalf("protected resources were deleted: %v", fake.resourceCalls)
+	}
+}
+
+func newBundleManager(t *testing.T) (*Manager, *storage.Repository, *storage.ManagedResourceStore, *fakeNomad) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "bundle.sqlite"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "bundle",
+		RepoURL: "https://example.com/bundle.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	fake := &fakeNomad{}
+	return &Manager{
+		files:   storage.NewRepoFileStore(db),
+		managed: storage.NewManagedResourceStore(db),
+		nomad:   fake,
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, repoRecord, storage.NewManagedResourceStore(db), fake
+}
+
+func TestBundleJobIdentitySurvivesBundlePathChange(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+
+	first, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse first bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: first}, true); err != nil {
+		t.Fatalf("ensure first bundle: %v", err)
+	}
+
+	second, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.hcl")
+	if err != nil {
+		t.Fatalf("parse second bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-2", Bundle: second}, true); err != nil {
+		t.Fatalf("ensure second bundle: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected stable bundle job to be planned without re-registering, got %d registrations", fake.registerCalls)
+	}
+	tracked, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list managed resources: %v", err)
+	}
+	if len(tracked) != 1 || tracked[0].Address != "job.api" {
+		t.Fatalf("unexpected managed bundle jobs: %#v", tracked)
+	}
+	if tracked[0].SourcePath != ".nomad/compass.hcl" {
+		t.Fatalf("expected source path to update without changing identity, got %q", tracked[0].SourcePath)
+	}
+}
+
+func TestBundleVolumeChangesRequireExplicitReplacement(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+
+	first, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "compass-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse first volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: first}, true); err != nil {
+		t.Fatalf("ensure first volume: %v", err)
+	}
+
+	changed, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "renamed-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse changed volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-2", Bundle: changed}, true); err == nil {
+		t.Fatal("expected protected volume change to fail")
+	}
+	if slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") {
+		t.Fatalf("protected volume was deleted: %v", fake.resourceCalls)
+	}
+
+	allowed, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    delete = "allow"
+    name = "renamed-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse allowed volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-3", Bundle: allowed}, true); err != nil {
+		t.Fatalf("ensure explicitly replaceable volume: %v", err)
+	}
+	if !slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") {
+		t.Fatalf("expected explicit volume replacement, got %v", fake.resourceCalls)
 	}
 }
 

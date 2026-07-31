@@ -135,7 +135,7 @@ func parseResource(block *hclwrite.Block, path string) (Resource, error) {
 	if err != nil {
 		return Resource{}, fmt.Errorf("resource %s.%s: %w", kind, name, err)
 	}
-	deleteMode := DeleteModeAllow
+	deleteMode := defaultDeleteMode(kind)
 	if attr := body.GetAttribute("delete"); attr != nil {
 		value, err := stringAttribute(attr, path)
 		if err != nil {
@@ -158,6 +158,15 @@ func parseResource(block *hclwrite.Block, path string) (Resource, error) {
 		DependsOn:  dependsOn,
 		DeleteMode: deleteMode,
 	}, nil
+}
+
+func defaultDeleteMode(kind string) DeleteMode {
+	switch kind {
+	case "volume", "acl_policy":
+		return DeleteModeProtect
+	default:
+		return DeleteModeAllow
+	}
 }
 
 func stringAttribute(attr *hclwrite.Attribute, path string) (string, error) {

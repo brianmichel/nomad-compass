@@ -74,6 +74,18 @@ func TestParseEmbeddedResources(t *testing.T) {
 	if job.DeleteMode != DeleteModeAllow {
 		t.Fatalf("expected jobs to allow deletion by default, got %q", job.DeleteMode)
 	}
+	var volume, policy Resource
+	for _, resource := range bundle.Resources {
+		switch resource.Address {
+		case "volume.data":
+			volume = resource
+		case "acl_policy.compass":
+			policy = resource
+		}
+	}
+	if volume.DeleteMode != DeleteModeProtect || policy.DeleteMode != DeleteModeProtect {
+		t.Fatalf("expected destructive resources to be protected by default, got volume=%q policy=%q", volume.DeleteMode, policy.DeleteMode)
+	}
 	source, err := NativeJobSource(job)
 	if err != nil {
 		t.Fatalf("build native job source: %v", err)
