@@ -20,6 +20,10 @@ type Observation struct {
 // resource in the live control plane. It must not mutate state.
 type Observer func(context.Context, manifest.Resource, storage.ManagedResource) (Observation, error)
 
+// Lookup reports whether an unmanaged Nomad resource already exists by its
+// desired name. It must not mutate state.
+type Lookup func(context.Context, manifest.Resource) (bool, error)
+
 // Report is the stable machine-readable representation of a bundle plan.
 type Report struct {
 	Bundle     string         `json:"bundle"`
@@ -47,6 +51,7 @@ type Summary struct {
 	Delete    int `json:"delete"`
 	Protected int `json:"protected"`
 	Unchanged int `json:"unchanged"`
+	Conflict  int `json:"conflict"`
 }
 
 // CompareBundles compares two validated bundles without contacting Nomad.
@@ -102,6 +107,11 @@ func CompareBundles(desired, previous *manifest.Bundle) Report {
 // CompareTracked compares a desired bundle with Compass's managed-resource
 // state and live Nomad observations. It never writes to storage or Nomad.
 func CompareTracked(ctx context.Context, desired *manifest.Bundle, tracked []storage.ManagedResource, observe Observer) (Report, error) {
+	return CompareTrackedWithLookup(ctx, desired, tracked, observe, nil)
+}
+
+// CompareTrackedWithLookup also reports unmanaged Nomad name collisions.
+func CompareTrackedWithLookup(ctx context.Context, desired *manifest.Bundle, tracked []storage.ManagedResource, observe Observer, lookup Lookup) (Report, error) {
 	if desired == nil {
 		return Report{}, fmt.Errorf("desired bundle is required")
 	}
@@ -122,6 +132,16 @@ func CompareTracked(ctx context.Context, desired *manifest.Bundle, tracked []sto
 		seen[resource.Address] = struct{}{}
 		trackedResource, exists := trackedByAddress[resource.Address]
 		if !exists {
+			if lookup != nil {
+				alreadyExists, err := lookup(ctx, resource)
+				if err != nil {
+					return Report{}, fmt.Errorf("lookup %s: %w", resource.Address, err)
+				}
+				if alreadyExists {
+					result.add(resourcePlan(resource, "conflict", "resource exists in Nomad but is not managed by Compass"))
+					continue
+				}
+			}
 			result.add(resourcePlan(resource, "create", "resource is not managed by Compass"))
 			continue
 		}
@@ -179,6 +199,8 @@ func (r *Report) add(resource ResourcePlan) {
 		r.Summary.Protected++
 	case "unchanged":
 		r.Summary.Unchanged++
+	case "conflict":
+		r.Summary.Conflict++
 	}
 }
 
