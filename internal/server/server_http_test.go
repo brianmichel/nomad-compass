@@ -69,7 +69,9 @@ func (s *handlerCredentialStore) Create(_ context.Context, name string, ctype st
 		return nil, s.err
 	}
 	s.created = append(s.created, payload)
-	return &storage.Credential{ID: 7, Name: name, Type: ctype}, nil
+	credential := storage.Credential{ID: 7, Name: name, Type: ctype}
+	s.creds = append(s.creds, credential)
+	return &credential, nil
 }
 
 type handlerReconciler struct {
@@ -294,10 +296,22 @@ func TestHandlerDispatchesMutationsAndMapsBackendErrors(t *testing.T) {
 	repos := &handlerRepoStore{}
 	creds := &handlerCredentialStore{}
 	reconciler := &handlerReconciler{plan: &plan.Report{}}
+	reconciler.protected = []storage.ManagedResource{{Address: "volume.data", Kind: "volume", Status: "protected", DeleteMode: "protect"}}
 	server := newHTTPTestServer(t, repos, creds, reconciler, handlerNomad{})
 	defer server.Close()
 
-	resp := request(t, server.URL, http.MethodPost, "/api/repos/42/reconcile", map[string]any{"dry_run": true})
+	resp := request(t, server.URL, http.MethodGet, "/api/repos/42/orphans", nil)
+	var orphans []protectedResourceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&orphans); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || len(orphans) != 1 || orphans[0].Address != "volume.data" {
+		t.Fatalf("orphans response = %d %#v", resp.StatusCode, orphans)
+	}
+
+	resp = request(t, server.URL, http.MethodPost, "/api/repos/42/reconcile", map[string]any{"dry_run": true})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || len(reconciler.planCalls) != 1 {
 		t.Fatalf("dry-run response = %d, plan calls = %v", resp.StatusCode, reconciler.planCalls)
@@ -358,6 +372,17 @@ func TestHandlerCredentialValidationAndStatus(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || len(creds.created) != 1 {
 		t.Fatalf("valid credential status = %d, created = %#v", resp.StatusCode, creds.created)
+	}
+
+	resp = request(t, server.URL, http.MethodGet, "/api/credentials", nil)
+	var listed []credentialResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listed); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(listed) != 1 || listed[0].Name != "token" {
+		t.Fatalf("listed credentials = %#v", listed)
 	}
 
 	resp = request(t, server.URL, http.MethodGet, "/api/status", nil)
