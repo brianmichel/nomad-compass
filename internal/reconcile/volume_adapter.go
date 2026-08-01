@@ -128,7 +128,17 @@ func (volumeAdapter) Adopt(ctx context.Context, lookup nomadclient.ResourceLooku
 		}
 		return managedResourceResult{NomadID: volume.ID, Namespace: volume.Namespace, Subtype: "host"}, nil
 	}
-	volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+	id := spec.CSI.ID
+	if id == "" {
+		id = resource.Name
+	}
+	observer, ok := lookup.(interface {
+		ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error)
+	})
+	if !ok {
+		return managedResourceResult{}, fmt.Errorf("CSI ownership lookup for %q is not supported", id)
+	}
+	volume, err := observer.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
 	if err != nil {
 		return managedResourceResult{}, fmt.Errorf("find CSI volume %q: %w", resource.Name, err)
 	}

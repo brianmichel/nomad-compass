@@ -82,6 +82,28 @@ func TestVolumeAdapterLifecycle(t *testing.T) {
 	}
 }
 
+func TestCSIVolumeAdoptionUsesCanonicalID(t *testing.T) {
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "display-name"
+    id = "canonical-id"
+    type = "csi"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeNomad{csiVolume: &api.CSIVolume{ID: "canonical-id", Name: "display-name", Namespace: "default", RequestedCapabilities: []*api.CSIVolumeCapability{{AccessMode: "single-node-single-writer", AttachmentMode: "file-system"}}}}
+	result, err := (volumeAdapter{}).Adopt(context.Background(), fake, bundle.Resources[0])
+	if err != nil || result.NomadID != "canonical-id" {
+		t.Fatalf("CSI adoption = %#v, %v", result, err)
+	}
+}
+
 func TestVolumeAdapterRejectsDriftDuringAdoption(t *testing.T) {
 	bundle, err := manifest.Parse([]byte(`bundle "compass" {
   resource "volume" "data" {
