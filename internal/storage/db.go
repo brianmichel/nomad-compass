@@ -82,6 +82,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
             last_error TEXT,
             delete_mode TEXT NOT NULL DEFAULT 'protect',
             subtype TEXT,
+            depends_on TEXT,
             updated_at TIMESTAMP NOT NULL,
             UNIQUE(repo_id, address),
             FOREIGN KEY(repo_id) REFERENCES repos(id)
@@ -90,6 +91,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE repo_files ADD COLUMN job_id TEXT`,
 		`ALTER TABLE repo_files ADD COLUMN delete_mode TEXT NOT NULL DEFAULT 'allow'`,
 		`ALTER TABLE managed_resources ADD COLUMN manifest_hash TEXT`,
+		`ALTER TABLE managed_resources ADD COLUMN depends_on TEXT`,
 	}
 
 	for _, stmt := range stmts {

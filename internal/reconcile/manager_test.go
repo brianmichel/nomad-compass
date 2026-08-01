@@ -18,6 +18,20 @@ import (
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
 
+func TestManagedDeletionOrderDeletesDependentsFirst(t *testing.T) {
+	ordered, err := managedDeletionOrder([]storage.ManagedResource{
+		{Address: "volume.data", Kind: "volume"},
+		{Address: "job.app", Kind: "job", DependsOn: []string{"volume.data"}},
+	})
+	if err != nil { t.Fatal(err) }
+	if len(ordered) != 2 || ordered[0].Address != "job.app" || ordered[1].Address != "volume.data" { t.Fatalf("order = %#v", ordered) }
+	_, err = managedDeletionOrder([]storage.ManagedResource{
+		{Address: "a", DependsOn: []string{"b"}},
+		{Address: "b", DependsOn: []string{"a"}},
+	})
+	if err == nil { t.Fatal("expected dependency cycle to fail closed") }
+}
+
 func TestParseJob(t *testing.T) {
 	job, submission, err := parseJob(".nomad/job.nomad.hcl", []byte(`job "demo" { datacenters = ["dc1"] }`))
 	if err != nil {

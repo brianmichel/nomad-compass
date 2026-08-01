@@ -5,6 +5,7 @@ go 1.24.7
 toolchain go1.24.8
 
 require (
+	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-git/go-git/v5 v5.16.3
 	github.com/hashicorp/hcl v1.0.1-vault-7
@@ -26,7 +27,6 @@ require (
 	github.com/bmatcuk/doublestar v1.1.5 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect

@@ -167,6 +167,9 @@ func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule
 	}
 
 	if unschedule {
+		if err := m.preflightManagedDeletion(ctx, repoRecord.ID); err != nil {
+			return err
+		}
 		if err := m.unscheduleJobs(ctx, repoRecord.ID); err != nil {
 			return err
 		}
@@ -226,6 +229,23 @@ func (m *Manager) DeleteCredential(ctx context.Context, credentialID int64, dele
 	return nil
 }
 
+func (m *Manager) preflightManagedDeletion(ctx context.Context, repoID int64) error {
+	if m.managed == nil {
+		return nil
+	}
+	resources, err := m.managed.ListByRepo(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	for _, resource := range resources {
+		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+			return fmt.Errorf("managed resource %q is protected; refusing repository deletion", resource.Address)
+		}
+	}
+	_, err = managedDeletionOrder(resources)
+	return err
+}
+
 func (m *Manager) unscheduleManagedResources(ctx context.Context, repoID int64) error {
 	if m.managed == nil {
 		return nil
@@ -243,8 +263,14 @@ func (m *Manager) unscheduleManagedResources(ctx context.Context, repoID int64) 
 	}
 	for _, resource := range resources {
 		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
-			continue
+			return fmt.Errorf("managed resource %q is protected; refusing repository deletion", resource.Address)
 		}
+	}
+	ordered, err := managedDeletionOrder(resources)
+	if err != nil {
+		return err
+	}
+	for _, resource := range ordered {
 		if err := deleteManagedResource(ctx, client, resource); err != nil {
 			return fmt.Errorf("delete managed resource %q: %w", resource.Address, err)
 		}
@@ -298,6 +324,15 @@ func parseJob(path string, contents []byte) (*api.Job, *api.JobSubmission, error
 }
 
 func (m *Manager) ensureJobs(ctx context.Context, repoRecord *storage.Repository, snapshot *repo.Snapshot, commitChanged bool) error {
+	if m.managed != nil {
+		managed, err := m.managed.ListByRepo(ctx, repoRecord.ID)
+		if err != nil {
+			return err
+		}
+		if len(managed) > 0 {
+			return errors.New("cannot switch from bundle ownership to legacy job ownership without an explicit migration")
+		}
+	}
 	jobFiles, err := snapshotJobFiles(snapshot)
 	if err != nil {
 		return err
@@ -419,11 +454,21 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 	if m.managed == nil {
 		return errors.New("managed resource store is required for bundle resources")
 	}
+	legacyFiles, err := m.files.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		return err
+	}
+	if len(legacyFiles) > 0 {
+		return errors.New("cannot switch from legacy job ownership to bundle ownership without an explicit migration")
+	}
 	ordered, err := snapshot.Bundle.OrderedResources()
 	if err != nil {
 		return err
 	}
 	if err := validateBundleResources(ordered); err != nil {
+		return err
+	}
+	if err := validateUniqueVolumeIdentities(ordered); err != nil {
 		return err
 	}
 
@@ -455,11 +500,19 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 			}
 		}
 	}
+	transferred := make(map[string]string)
 	for _, resource := range ordered {
 		if resource.Kind == "job" {
 			continue
 		}
-		if err := m.ensureManagedResource(ctx, repoRecord.ID, snapshot, resourceClient, resource, tracked[resource.Address]); err != nil {
+		existing := tracked[resource.Address]
+		if existing.Address == "" && resource.Kind == "volume" {
+			if candidate, ok := findTrackedVolumeIdentity(resource, tracked); ok {
+				existing = candidate
+				transferred[candidate.Address] = resource.Address
+			}
+		}
+		if err := m.ensureManagedResource(ctx, repoRecord.ID, snapshot, resourceClient, resource, existing); err != nil {
 			return err
 		}
 	}
@@ -478,7 +531,17 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 			removed = append(removed, resource)
 		}
 	}
-	for _, resource := range managedDeletionOrder(removed) {
+	orderedRemoved, err := managedDeletionOrder(removed)
+	if err != nil {
+		return err
+	}
+	for _, resource := range orderedRemoved {
+		if newAddress, moved := transferred[resource.Address]; moved {
+			if err := m.managed.Delete(ctx, repoRecord.ID, resource.Address); err != nil {
+				return fmt.Errorf("transfer managed resource %q to %q: %w", resource.Address, newAddress, err)
+			}
+			continue
+		}
 		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
 			_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
 				RepoID:       repoRecord.ID,
@@ -494,6 +557,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				LastError:    "resource removed from bundle but deletion is protected",
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
+				DependsOn:    resource.DependsOn,
 			})
 			continue
 		}
@@ -522,26 +586,79 @@ func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snaps
 		LastError:    lastError,
 		DeleteMode:   string(resource.DeleteMode),
 		Subtype:      subtype,
+		DependsOn:    resource.DependsOn,
 	})
 }
 
-// managedDeletionOrder handles the currently supported dependency shape:
-// bundle jobs may depend on volumes or ACL policies, so jobs are pruned first.
-// A persisted dependency graph can replace this kind ordering when more
-// cross-resource relationships are introduced.
-func managedDeletionOrder(resources []storage.ManagedResource) []storage.ManagedResource {
-	ordered := append([]storage.ManagedResource(nil), resources...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return managedDeletionRank(ordered[i].Kind) < managedDeletionRank(ordered[j].Kind)
-	})
-	return ordered
-}
-
-func managedDeletionRank(kind string) int {
-	if kind == "job" {
-		return 0
+// managedDeletionOrder returns dependent-first order. Dependencies that are
+// still present in the desired set are intentionally omitted from this list.
+func managedDeletionOrder(resources []storage.ManagedResource) ([]storage.ManagedResource, error) {
+	byAddress := make(map[string]storage.ManagedResource, len(resources))
+	for _, resource := range resources {
+		byAddress[resource.Address] = resource
 	}
-	return 1
+	state := make(map[string]uint8, len(resources))
+	ordered := make([]storage.ManagedResource, 0, len(resources))
+	var visit func(string) error
+	visit = func(address string) error {
+		switch state[address] {
+		case 1:
+			return fmt.Errorf("managed resource dependency cycle at %q", address)
+		case 2:
+			return nil
+		}
+		resource, ok := byAddress[address]
+		if !ok {
+			return nil
+		}
+		state[address] = 1
+		for _, dependency := range resource.DependsOn {
+			if err := visit(dependency); err != nil {
+				return err
+			}
+		}
+		state[address] = 2
+		// A dependent must be deleted before its dependency. The DFS emits
+		// dependencies first, so prepend the resource after all dependencies.
+		ordered = append(ordered, resource)
+		return nil
+	}
+	for _, resource := range resources {
+		if err := visit(resource.Address); err != nil {
+			return nil, err
+		}
+	}
+	// Reverse the dependency-first traversal to obtain dependent-first order.
+	for left, right := 0, len(ordered)-1; left < right; left, right = left+1, right-1 {
+		ordered[left], ordered[right] = ordered[right], ordered[left]
+	}
+	return ordered, nil
+}
+
+func validateUniqueVolumeIdentities(resources []manifest.Resource) error {
+	seen := make(map[string]string)
+	for _, resource := range resources {
+		if resource.Kind != "volume" {
+			continue
+		}
+		spec, err := manifest.CompileVolume(resource)
+		if err != nil {
+			return err
+		}
+		if spec.Type != "csi" || spec.CSI == nil {
+			continue
+		}
+		id := spec.CSI.ID
+		if id == "" {
+			id = resource.Name
+		}
+		key := effectiveNamespace(spec.CSI.Namespace) + "\x00" + id
+		if previous, exists := seen[key]; exists {
+			return fmt.Errorf("bundle CSI volumes %q and %q share canonical identity %q", previous, resource.Address, id)
+		}
+		seen[key] = resource.Address
+	}
+	return nil
 }
 
 func validateBundleResources(resources []manifest.Resource) error {
@@ -633,6 +750,23 @@ func (m *Manager) ensureBundleJobs(ctx context.Context, repoRecord *storage.Repo
 	return nil
 }
 
+func findTrackedVolumeIdentity(resource manifest.Resource, tracked map[string]storage.ManagedResource) (storage.ManagedResource, bool) {
+	spec, err := manifest.CompileVolume(resource)
+	if err != nil || spec.Type != "csi" || spec.CSI == nil {
+		return storage.ManagedResource{}, false
+	}
+	id := spec.CSI.ID
+	if id == "" {
+		id = resource.Name
+	}
+	for _, candidate := range tracked {
+		if candidate.Kind == "volume" && candidate.Subtype.Valid && candidate.Subtype.String == "csi" && candidate.NomadID.Valid && candidate.NomadID.String == id && effectiveNamespace(candidate.Namespace.String) == effectiveNamespace(spec.CSI.Namespace) {
+			return candidate, true
+		}
+	}
+	return storage.ManagedResource{}, false
+}
+
 func (m *Manager) managedResources(ctx context.Context, repoID int64) (map[string]storage.ManagedResource, error) {
 	resources, err := m.managed.ListByRepo(ctx, repoID)
 	if err != nil {
@@ -709,6 +843,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
+			DependsOn:    resource.DependsOn,
 		})
 		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
 	}
@@ -717,6 +852,22 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 		spec, compileErr := manifest.CompileVolume(resource)
 		if compileErr != nil {
 			err = compileErr
+			break
+		}
+		if spec.Type == "csi" && spec.CSI != nil {
+			if spec.CSI.ID == "" {
+				spec.CSI.ID = resource.Name
+			}
+			if tracked.Address == "" {
+				existing, observeErr := client.ObserveCSIVolume(ctx, spec.CSI.ID, effectiveNamespace(spec.CSI.Namespace))
+				if observeErr != nil {
+					err = observeErr
+				} else if existing != nil {
+					err = fmt.Errorf("CSI volume %q already exists but is not managed by this repository", spec.CSI.ID)
+				}
+			}
+		}
+		if err != nil {
 			break
 		}
 		switch spec.Type {
@@ -763,6 +914,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
+			DependsOn:    resource.DependsOn,
 		})
 		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
 	}
@@ -801,57 +953,138 @@ func managedVolumeDrifted(ctx context.Context, client nomadclient.ResourceClient
 }
 
 func hostVolumeEquivalent(desired, actual *api.HostVolume) bool {
-	if desired == nil || actual == nil || desired.Name != actual.Name {
+	if desired == nil || actual == nil || desired.Name != actual.Name || effectiveNamespace(desired.Namespace) != effectiveNamespace(actual.Namespace) {
 		return false
 	}
 	desiredPlugin := desired.PluginID
 	if desiredPlugin == "" {
 		desiredPlugin = "mkdir"
 	}
-	if actual.PluginID != desiredPlugin {
+	actualPlugin := actual.PluginID
+	if actualPlugin == "" {
+		actualPlugin = "mkdir"
+	}
+	return actualPlugin == desiredPlugin &&
+		(optionalEqual(desired.NodePool, actual.NodePool) && optionalEqual(desired.NodeID, actual.NodeID)) &&
+		reflect.DeepEqual(normalizedHostCapabilities(desired.RequestedCapabilities), normalizedHostCapabilities(actual.RequestedCapabilities)) &&
+		reflect.DeepEqual(normalizedConstraints(desired.Constraints), normalizedConstraints(actual.Constraints)) &&
+		reflect.DeepEqual(normalizedStringMap(desired.Parameters), normalizedStringMap(actual.Parameters)) &&
+		desired.RequestedCapacityMinBytes == actual.RequestedCapacityMinBytes &&
+		desired.RequestedCapacityMaxBytes == actual.RequestedCapacityMaxBytes &&
+		(desired.CapacityBytes == 0 || desired.CapacityBytes == actual.CapacityBytes)
+}
+
+func csiVolumeEquivalent(desired, actual *api.CSIVolume) bool {
+	if desired == nil || actual == nil || desired.ID != "" && desired.ID != actual.ID || desired.Name != actual.Name || effectiveNamespace(desired.Namespace) != effectiveNamespace(actual.Namespace) {
 		return false
 	}
-	if desired.NodePool != "" && desired.NodePool != actual.NodePool {
+	if !optionalEqual(desired.ExternalID, actual.ExternalID) || !optionalEqual(string(desired.AccessMode), string(actual.AccessMode)) || !optionalEqual(string(desired.AttachmentMode), string(actual.AttachmentMode)) || !optionalEqual(desired.PluginID, actual.PluginID) {
 		return false
 	}
-	if len(desired.RequestedCapabilities) > 0 && !reflect.DeepEqual(desired.RequestedCapabilities, actual.RequestedCapabilities) {
+	if !reflect.DeepEqual(normalizedMountOptions(desired.MountOptions), normalizedMountOptions(actual.MountOptions)) ||
+		!reflect.DeepEqual(normalizedStringMap(desired.Parameters), normalizedStringMap(actual.Parameters)) ||
+		!reflect.DeepEqual(normalizedStringMap(desired.Context), normalizedStringMap(actual.Context)) ||
+		!secretsEquivalent(desired.Secrets, actual.Secrets) ||
+		!reflect.DeepEqual(normalizedCSICapabilities(desired.RequestedCapabilities), normalizedCSICapabilities(actual.RequestedCapabilities)) ||
+		!reflect.DeepEqual(normalizedTopologyRequest(desired.RequestedTopologies), normalizedTopologyRequest(actual.RequestedTopologies)) {
 		return false
 	}
-	if len(desired.Parameters) > 0 && !reflect.DeepEqual(desired.Parameters, actual.Parameters) {
+	return (desired.RequestedCapacityMin == 0 || desired.RequestedCapacityMin == actual.RequestedCapacityMin) && (desired.RequestedCapacityMax == 0 || desired.RequestedCapacityMax == actual.RequestedCapacityMax) && optionalEqual(desired.CloneID, actual.CloneID) && optionalEqual(desired.SnapshotID, actual.SnapshotID)
+}
+
+func effectiveNamespace(namespace string) string {
+	if namespace == "" {
+		return "default"
+	}
+	return namespace
+}
+
+func optionalEqual(desired, actual string) bool { return desired == "" || desired == actual }
+
+func normalizedStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	return values
+}
+
+func secretsEquivalent(desired, actual api.CSISecrets) bool {
+	if len(actual) == 0 && len(desired) > 0 {
+		return true
+	}
+	if len(desired) != len(actual) {
 		return false
+	}
+	for key, desiredValue := range desired {
+		actualValue, ok := actual[key]
+		if !ok || actualValue != "<redacted>" && actualValue != desiredValue {
+			return false
+		}
 	}
 	return true
 }
 
-func csiVolumeEquivalent(desired, actual *api.CSIVolume) bool {
-	if desired == nil || actual == nil || desired.Name != actual.Name {
-		return false
+func normalizedHostCapabilities(values []*api.HostVolumeCapability) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != nil {
+			result = append(result, string(value.AccessMode)+"/"+string(value.AttachmentMode))
+		}
 	}
-	if desired.ExternalID != "" && desired.ExternalID != actual.ExternalID {
-		return false
+	sort.Strings(result)
+	return result
+}
+
+func normalizedCSICapabilities(values []*api.CSIVolumeCapability) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != nil {
+			result = append(result, string(value.AccessMode)+"/"+string(value.AttachmentMode))
+		}
 	}
-	if desired.AccessMode != "" && desired.AccessMode != actual.AccessMode {
-		return false
+	sort.Strings(result)
+	return result
+}
+
+func normalizedConstraints(values []*api.Constraint) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != nil {
+			result = append(result, value.LTarget+"/"+value.Operand+"/"+value.RTarget)
+		}
 	}
-	if desired.AttachmentMode != "" && desired.AttachmentMode != actual.AttachmentMode {
-		return false
+	sort.Strings(result)
+	return result
+}
+
+func normalizedMountOptions(value *api.CSIMountOptions) *api.CSIMountOptions {
+	if value == nil {
+		return &api.CSIMountOptions{}
 	}
-	if desired.PluginID != "" && desired.PluginID != actual.PluginID {
-		return false
+	copy := *value
+	copy.MountFlags = append([]string(nil), value.MountFlags...)
+	sort.Strings(copy.MountFlags)
+	return &copy
+}
+
+func normalizedTopologyRequest(value *api.CSITopologyRequest) *api.CSITopologyRequest {
+	if value == nil {
+		return &api.CSITopologyRequest{}
 	}
-	if desired.MountOptions != nil && !reflect.DeepEqual(desired.MountOptions, actual.MountOptions) {
-		return false
+	copy := &api.CSITopologyRequest{}
+	for _, group := range []struct {
+		source []*api.CSITopology
+		target *[]*api.CSITopology
+	}{{value.Required, &copy.Required}, {value.Preferred, &copy.Preferred}} {
+		for _, topology := range group.source {
+			if topology != nil {
+				segments := normalizedStringMap(topology.Segments)
+				copyTopology := &api.CSITopology{Segments: segments}
+				*group.target = append(*group.target, copyTopology)
+			}
+		}
 	}
-	if len(desired.Parameters) > 0 && !reflect.DeepEqual(desired.Parameters, actual.Parameters) {
-		return false
-	}
-	if len(desired.Context) > 0 && !reflect.DeepEqual(desired.Context, actual.Context) {
-		return false
-	}
-	if len(desired.RequestedCapabilities) > 0 && !reflect.DeepEqual(desired.RequestedCapabilities, actual.RequestedCapabilities) {
-		return false
-	}
-	return true
+	return copy
 }
 
 func managedResourceExists(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (bool, error) {

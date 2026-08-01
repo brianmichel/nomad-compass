@@ -172,6 +172,71 @@ func TestCompileHostVolumeAndACLPolicy(t *testing.T) {
 	}
 }
 
+func TestCompileVolumeDecodesNativeHostAndCSIFieldsStrictly(t *testing.T) {
+	bundle, err := Parse([]byte(`bundle "volumes" {
+  resource "volume" "host" {
+    type = "host"
+    name = "data"
+    capacity_min = "10GiB"
+    capacity_max = "20GiB"
+    node_pool = "apps"
+    constraint {
+      attribute = "${node.class}"
+      operator = "="
+      value = "storage"
+    }
+  }
+  resource "volume" "csi" {
+    type = "csi"
+    id = "csi-data"
+    name = "data"
+    capacity_min = "1G"
+    mount_options {
+      fs_type = "ext4"
+      mount_flags = ["ro", "noatime"]
+    }
+    topology_request {
+      required {
+        topology {
+          segments { zone = "a" }
+        }
+      }
+    }
+  }
+}`), "volumes.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := CompileVolume(bundle.Resources[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.Host.RequestedCapacityMinBytes != 10*1024*1024*1024 || len(host.Host.Constraints) != 1 {
+		t.Fatalf("unexpected host volume: %#v", host.Host)
+	}
+	csi, err := CompileVolume(bundle.Resources[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if csi.CSI.RequestedCapacityMin == 0 || csi.CSI.MountOptions.FSType != "ext4" || len(csi.CSI.MountOptions.MountFlags) != 2 || len(csi.CSI.RequestedTopologies.Required) != 1 {
+		t.Fatalf("unexpected CSI volume: %#v", csi.CSI)
+	}
+
+	bad, err := Parse([]byte(`bundle "bad" {
+  resource "volume" "data" {
+    type = "host"
+    name = "data"
+    typo = true
+  }
+}`), "bad.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileVolume(bad.Resources[0]); err == nil {
+		t.Fatal("expected unknown volume field to be rejected")
+	}
+}
+
 func TestParseRejectsDependencyCycle(t *testing.T) {
 	_, err := Parse([]byte(`bundle "cycle" {
   resource "job" "a" { depends_on = ["job.b"] }

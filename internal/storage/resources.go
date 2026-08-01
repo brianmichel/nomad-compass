@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 // ManagedResourceInput contains the latest observed state for a bundle
@@ -21,6 +22,7 @@ type ManagedResourceInput struct {
 	LastError    string
 	DeleteMode   string
 	Subtype      string
+	DependsOn    []string
 }
 
 // ManagedResourceStore persists bundle resource ownership and observations.
@@ -35,9 +37,13 @@ func NewManagedResourceStore(db *sql.DB) *ManagedResourceStore {
 
 // Upsert records the latest state for a repository resource address.
 func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResourceInput) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO managed_resources
-        (repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	dependsOn, err := json.Marshal(input.DependsOn)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO managed_resources
+        (repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, depends_on, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(repo_id, address) DO UPDATE SET
           kind = excluded.kind,
           source_path = excluded.source_path,
@@ -50,6 +56,7 @@ func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResource
           last_error = excluded.last_error,
           delete_mode = excluded.delete_mode,
           subtype = excluded.subtype,
+          depends_on = excluded.depends_on,
           updated_at = excluded.updated_at`,
 		input.RepoID,
 		input.Address,
@@ -64,6 +71,7 @@ func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResource
 		stringOrNull(input.LastError),
 		input.DeleteMode,
 		stringOrNull(input.Subtype),
+		stringOrNull(string(dependsOn)),
 		Now(),
 	)
 	return err
@@ -71,7 +79,7 @@ func (s *ManagedResourceStore) Upsert(ctx context.Context, input ManagedResource
 
 // ListByRepo returns all resources previously observed for a repository.
 func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]ManagedResource, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, updated_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, depends_on, updated_at
         FROM managed_resources WHERE repo_id = ? ORDER BY address`, repoID)
 	if err != nil {
 		return nil, err
@@ -81,6 +89,7 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 	var resources []ManagedResource
 	for rows.Next() {
 		var resource ManagedResource
+		var resourceDependsOn sql.NullString
 		if err := rows.Scan(
 			&resource.ID,
 			&resource.RepoID,
@@ -96,9 +105,15 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 			&resource.LastError,
 			&resource.DeleteMode,
 			&resource.Subtype,
+			&resourceDependsOn,
 			&resource.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if resourceDependsOn.Valid && resourceDependsOn.String != "" {
+			if err := json.Unmarshal([]byte(resourceDependsOn.String), &resource.DependsOn); err != nil {
+				return nil, err
+			}
 		}
 		resources = append(resources, resource)
 	}
