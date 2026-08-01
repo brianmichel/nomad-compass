@@ -242,6 +242,49 @@ func TestAPIClientCanDecodeSuccessfulNamespaceResponse(t *testing.T) {
 	}
 }
 
+func TestResourceDiscoveryMatchesEffectiveNamespaces(t *testing.T) {
+	client := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/volumes" && r.URL.Query().Get("type") == "host" {
+			_, _ = w.Write([]byte(`[{"ID":"host-1","Name":"data","Namespace":""}]`))
+			return
+		}
+		if r.URL.Path == "/v1/volume/host/host-1" {
+			_, _ = w.Write([]byte(`{"ID":"host-1","Name":"data","Namespace":"","PluginID":"mkdir"}`))
+			return
+		}
+		if r.URL.Path == "/v1/volumes" && r.URL.Query().Get("type") == "csi" {
+			_, _ = w.Write([]byte(`[{"ID":"csi-1","Name":"data","Namespace":""}]`))
+			return
+		}
+		if r.URL.Path == "/v1/volume/csi/csi-1" {
+			_, _ = w.Write([]byte(`{"ID":"csi-1","Name":"data","Namespace":""}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	ctx := context.Background()
+	host, err := client.FindHostVolume(ctx, "data", "default")
+	if err != nil || host == nil || host.ID != "host-1" {
+		t.Fatalf("host discovery = %#v, %v", host, err)
+	}
+	csi, err := client.FindCSIVolume(ctx, "data", "")
+	if err != nil || csi == nil || csi.ID != "csi-1" {
+		t.Fatalf("CSI discovery = %#v, %v", csi, err)
+	}
+	if found, err := client.FindHostVolume(ctx, "missing", "default"); err != nil || found != nil {
+		t.Fatalf("missing host discovery = %#v, %v", found, err)
+	}
+}
+
+func TestEffectiveNamespaceUsesNomadDefault(t *testing.T) {
+	for input, want := range map[string]string{"": "default", "default": "default", "team-a": "team-a"} {
+		if got := effectiveNamespace(input); got != want {
+			t.Fatalf("effectiveNamespace(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestIsNotFoundHandlesOnlyNomad404Errors(t *testing.T) {
 	if isNotFound(nil) {
 		t.Fatal("nil error reported as not found")
