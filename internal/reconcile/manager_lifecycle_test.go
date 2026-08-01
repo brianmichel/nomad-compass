@@ -95,6 +95,12 @@ func TestReconcileRepoSyncsAppliesAndThenOnlyPollsUnchangedRepository(t *testing
 	if updated.LastCommit.String != firstCommit || fake.registerCalls != 1 {
 		t.Fatalf("unchanged repository was reapplied: commit=%q calls=%d", updated.LastCommit.String, fake.registerCalls)
 	}
+	if err := manager.RunOnce(ctx); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if fake.registerCalls != 1 {
+		t.Fatalf("RunOnce reapplied unchanged repository: %d registrations", fake.registerCalls)
+	}
 
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
