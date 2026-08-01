@@ -220,11 +220,14 @@ func newRepoCommand(state *commandState) *cobra.Command {
 				return errors.New("--id must be greater than zero")
 			}
 			path := "/api/repos/" + strconv.FormatInt(reconcileID, 10) + "/reconcile"
-			if err := state.client().post(cmd.Context(), path, nil, nil); err != nil {
+			var response map[string]string
+			if err := state.client().post(cmd.Context(), path, nil, &response); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(state.out, "reconciliation requested for repository %d\n", reconcileID)
-			return err
+			return writeValue(state.out, state.format, response, func() error {
+				_, err := fmt.Fprintf(state.out, "reconciliation requested for repository %d\n", reconcileID)
+				return err
+			})
 		},
 	}
 	reconcileCommand.Flags().Int64Var(&reconcileID, "id", 0, "repository ID")
@@ -243,11 +246,14 @@ func newRepoCommand(state *commandState) *cobra.Command {
 				return errors.New("repository deletion requires --yes")
 			}
 			path := "/api/repos/" + strconv.FormatInt(deleteID, 10)
-			if err := state.client().delete(cmd.Context(), path, deleteRepoRequest{Unschedule: unschedule}); err != nil {
+			var response map[string]string
+			if err := state.client().delete(cmd.Context(), path, deleteRepoRequest{Unschedule: unschedule}, &response); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(state.out, "repository %d deleted\n", deleteID)
-			return err
+			return writeValue(state.out, state.format, response, func() error {
+				_, err := fmt.Fprintf(state.out, "repository %d deleted\n", deleteID)
+				return err
+			})
 		},
 	}
 	deleteCommand.Flags().Int64Var(&deleteID, "id", 0, "repository ID")
@@ -296,6 +302,9 @@ func newCredentialCommand(state *commandState) *cobra.Command {
 			if strings.TrimSpace(name) == "" || strings.TrimSpace(credentialType) == "" {
 				return errors.New("--name and --type are required")
 			}
+			if err := validateCredentialInput(credentialType, token, privateKey); err != nil {
+				return err
+			}
 			payload := createCredentialRequest{Name: name, Type: credentialType, Token: token, Username: username, PrivateKey: privateKey, Passphrase: passphrase}
 			var credential credentialResponse
 			if err := state.client().post(cmd.Context(), "/api/credentials", payload, &credential); err != nil {
@@ -327,13 +336,19 @@ func newCredentialCommand(state *commandState) *cobra.Command {
 			if !confirm {
 				return errors.New("credential deletion requires --yes")
 			}
+			if unschedule && !deleteRepos {
+				return errors.New("--unschedule requires --delete-repos")
+			}
 			path := "/api/credentials/" + strconv.FormatInt(deleteID, 10)
 			payload := deleteCredentialRequest{DeleteRepos: deleteRepos, Unschedule: unschedule}
-			if err := state.client().delete(cmd.Context(), path, payload); err != nil {
+			var response map[string]string
+			if err := state.client().delete(cmd.Context(), path, payload, &response); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(state.out, "credential %d deleted\n", deleteID)
-			return err
+			return writeValue(state.out, state.format, response, func() error {
+				_, err := fmt.Fprintf(state.out, "credential %d deleted\n", deleteID)
+				return err
+			})
 		},
 	}
 	deleteCommand.Flags().Int64Var(&deleteID, "id", 0, "credential ID")
@@ -649,8 +664,8 @@ func (c *serverClient) post(ctx context.Context, path string, payload, result an
 	return c.request(ctx, http.MethodPost, path, payload, result)
 }
 
-func (c *serverClient) delete(ctx context.Context, path string, payload any) error {
-	return c.request(ctx, http.MethodDelete, path, payload, nil)
+func (c *serverClient) delete(ctx context.Context, path string, payload, result any) error {
+	return c.request(ctx, http.MethodDelete, path, payload, result)
 }
 
 func (c *serverClient) request(ctx context.Context, method, path string, payload, result any) error {
@@ -686,7 +701,7 @@ func (c *serverClient) request(ctx context.Context, method, path string, payload
 	if result == nil {
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("decode Compass API response: %w", err)
 	}
 	return nil
@@ -714,9 +729,11 @@ type repositoryJob struct {
 }
 
 type credentialResponse struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
 type createRepoRequest struct {
@@ -743,4 +760,20 @@ type createCredentialRequest struct {
 type deleteCredentialRequest struct {
 	Unschedule  bool `json:"unschedule"`
 	DeleteRepos bool `json:"delete_repos"`
+}
+
+func validateCredentialInput(credentialType, token, privateKey string) error {
+	switch credentialType {
+	case "https-token":
+		if strings.TrimSpace(token) == "" {
+			return errors.New("--token is required for https-token credentials")
+		}
+	case "ssh-key":
+		if strings.TrimSpace(privateKey) == "" {
+			return errors.New("--private-key is required for ssh-key credentials")
+		}
+	default:
+		return fmt.Errorf("unsupported credential type %q", credentialType)
+	}
+	return nil
 }
