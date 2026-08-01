@@ -354,10 +354,203 @@ func CompileNamespace(resource Resource) (*api.Namespace, error) {
 		return nil, err
 	}
 	namespace := &api.Namespace{Name: resource.Name}
+	capabilities := values["capabilities"]
+	nodePool := values["node_pool_config"]
+	vault := values["vault"]
+	consul := values["consul"]
+	delete(values, "capabilities")
+	delete(values, "node_pool_config")
+	delete(values, "vault")
+	delete(values, "consul")
 	if err := strictDecode(values, namespace); err != nil {
 		return nil, fmt.Errorf("decode namespace %q: %w", resource.Address, err)
 	}
+	var nestedErr error
+	if namespace.Capabilities, nestedErr = decodeNamespaceCapabilities(capabilities); nestedErr != nil {
+		return nil, fmt.Errorf("decode namespace %q capabilities: %w", resource.Address, nestedErr)
+	}
+	if namespace.NodePoolConfiguration, nestedErr = decodeNamespaceNodePool(nodePool); nestedErr != nil {
+		return nil, fmt.Errorf("decode namespace %q node_pool_config: %w", resource.Address, nestedErr)
+	}
+	if namespace.VaultConfiguration, nestedErr = decodeNamespaceVault(vault); nestedErr != nil {
+		return nil, fmt.Errorf("decode namespace %q vault: %w", resource.Address, nestedErr)
+	}
+	if namespace.ConsulConfiguration, nestedErr = decodeNamespaceConsul(consul); nestedErr != nil {
+		return nil, fmt.Errorf("decode namespace %q consul: %w", resource.Address, nestedErr)
+	}
 	return namespace, nil
+}
+
+func namespaceBlocks(value interface{}, label string) (map[string]interface{}, error) {
+	items, err := objectList(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) != 1 {
+		return nil, fmt.Errorf("expected one %s block", label)
+	}
+	return items[0], nil
+}
+
+func stringSlice(value interface{}) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected a list of strings, got %T", value)
+	}
+	result := make([]string, 0, len(raw))
+	for _, item := range raw {
+		text, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("list item must be a string, got %T", item)
+		}
+		result = append(result, text)
+	}
+	return result, nil
+}
+
+func decodeNamespaceCapabilities(value interface{}) (*api.NamespaceCapabilities, error) {
+	values, err := namespaceBlocks(value, "capabilities")
+	if err != nil || values == nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(values, keySet("enabled_task_drivers", "disabled_task_drivers", "enabled_network_modes", "disabled_network_modes"), "namespace capabilities"); err != nil {
+		return nil, err
+	}
+	result := &api.NamespaceCapabilities{}
+	if result.EnabledTaskDrivers, err = stringSlice(values["enabled_task_drivers"]); err != nil {
+		return nil, err
+	}
+	if result.DisabledTaskDrivers, err = stringSlice(values["disabled_task_drivers"]); err != nil {
+		return nil, err
+	}
+	if result.EnabledNetworkModes, err = stringSlice(values["enabled_network_modes"]); err != nil {
+		return nil, err
+	}
+	if result.DisabledNetworkModes, err = stringSlice(values["disabled_network_modes"]); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func decodeNamespaceNodePool(value interface{}) (*api.NamespaceNodePoolConfiguration, error) {
+	values, err := namespaceBlocks(value, "node_pool_config")
+	if err != nil || values == nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(values, keySet("default", "allowed", "denied"), "namespace node_pool_config"); err != nil {
+		return nil, err
+	}
+	result := &api.NamespaceNodePoolConfiguration{}
+	if raw, ok := values["default"]; ok {
+		var valid bool
+		result.Default, valid = raw.(string)
+		if !valid {
+			return nil, fmt.Errorf("default must be a string")
+		}
+	}
+	if result.Allowed, err = stringSlice(values["allowed"]); err != nil {
+		return nil, err
+	}
+	if result.Denied, err = stringSlice(values["denied"]); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func decodeNamespaceVault(value interface{}) (*api.NamespaceVaultConfiguration, error) {
+	values, err := namespaceBlocks(value, "vault")
+	if err != nil || values == nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(values, keySet("default", "allowed", "denied"), "namespace vault"); err != nil {
+		return nil, err
+	}
+	result := &api.NamespaceVaultConfiguration{}
+	if raw, ok := values["default"]; ok {
+		var valid bool
+		result.Default, valid = raw.(string)
+		if !valid {
+			return nil, fmt.Errorf("default must be a string")
+		}
+	}
+	if result.Allowed, err = stringSlice(values["allowed"]); err != nil {
+		return nil, err
+	}
+	if result.Denied, err = stringSlice(values["denied"]); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func decodeNamespaceConsul(value interface{}) (*api.NamespaceConsulConfiguration, error) {
+	values, err := namespaceBlocks(value, "consul")
+	if err != nil || values == nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(values, keySet("default", "allowed", "denied"), "namespace consul"); err != nil {
+		return nil, err
+	}
+	result := &api.NamespaceConsulConfiguration{}
+	if raw, ok := values["default"]; ok {
+		var valid bool
+		result.Default, valid = raw.(string)
+		if !valid {
+			return nil, fmt.Errorf("default must be a string")
+		}
+	}
+	if result.Allowed, err = stringSlice(values["allowed"]); err != nil {
+		return nil, err
+	}
+	if result.Denied, err = stringSlice(values["denied"]); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func integerValue(value interface{}, field string) (int, error) {
+	switch value := value.(type) {
+	case int:
+		return value, nil
+	case int64:
+		return int(value), nil
+	case float64:
+		if value != float64(int(value)) {
+			return 0, fmt.Errorf("%s must be a whole number", field)
+		}
+		return int(value), nil
+	default:
+		return 0, fmt.Errorf("%s must be a number, got %T", field, value)
+	}
+}
+
+func decodeQuotaStorage(value interface{}) (*api.QuotaStorageResources, error) {
+	values, err := namespaceBlocks(value, "storage")
+	if err != nil || values == nil {
+		return nil, err
+	}
+	if err := rejectUnknownKeys(values, keySet("variables", "host_volumes"), "quota storage"); err != nil {
+		return nil, err
+	}
+	result := &api.QuotaStorageResources{}
+	if raw, ok := values["variables"]; ok {
+		result.VariablesMB, err = integerValue(raw, "variables")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if raw, ok := values["host_volumes"]; ok {
+		result.HostVolumesMB, err = integerValue(raw, "host_volumes")
+		if err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 // CompileQuota decodes a native Nomad quota body.
@@ -388,15 +581,20 @@ func CompileQuota(resource Resource) (*api.QuotaSpec, error) {
 			return nil, fmt.Errorf("decode quota %q limit: %w", resource.Address, err)
 		}
 		var regionLimit *api.QuotaResources
-		if nested, ok := item.Val.(*ast.ObjectList); ok {
-			for _, regionItem := range nested.Filter("region_limit").Elem().Items {
+		if object, ok := item.Val.(*ast.ObjectType); ok {
+			for _, regionItem := range object.List.Filter("region_limit").Elem().Items {
 				regionValues := map[string]interface{}{}
 				if err := oldhcl.DecodeObject(&regionValues, regionItem.Val); err != nil {
 					return nil, fmt.Errorf("decode quota %q region limit: %w", resource.Address, err)
 				}
+				storageValue := regionValues["storage"]
+				delete(regionValues, "storage")
 				regionLimit = &api.QuotaResources{}
 				if err := strictDecode(regionValues, regionLimit); err != nil {
 					return nil, fmt.Errorf("decode quota %q region limit: %w", resource.Address, err)
+				}
+				if regionLimit.Storage, err = decodeQuotaStorage(storageValue); err != nil {
+					return nil, fmt.Errorf("decode quota %q storage: %w", resource.Address, err)
 				}
 				break
 			}
