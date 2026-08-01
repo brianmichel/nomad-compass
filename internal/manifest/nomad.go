@@ -435,6 +435,9 @@ func CompileVariable(resource Resource) (*api.Variable, error) {
 	if variable.Path == "" {
 		variable.Path = resource.Name
 	}
+	if variable.Namespace == "" {
+		variable.Namespace = "default"
+	}
 	if len(variable.Items) == 0 {
 		return nil, fmt.Errorf("variable %q must contain items", resource.Address)
 	}
@@ -481,6 +484,9 @@ func CompileSentinelPolicy(resource Resource) (*api.SentinelPolicy, error) {
 	}
 	body := file.Body()
 	allowed := map[string]struct{}{"description": {}, "scope": {}, "enforcement_level": {}, "policy": {}}
+	for _, block := range body.Blocks() {
+		return nil, fmt.Errorf("Sentinel policy %q has unsupported block %q", resource.Address, block.Type())
+	}
 	for name := range body.Attributes() {
 		if _, ok := allowed[name]; !ok {
 			return nil, fmt.Errorf("Sentinel policy %q has unsupported attribute %q", resource.Address, name)

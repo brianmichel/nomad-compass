@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/hashicorp/nomad/api"
+
 	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	"github.com/brianmichel/nomad-compass/internal/plan"
@@ -12,6 +14,15 @@ import (
 )
 
 type sentinelPolicyAdapter struct{}
+
+func sentinelEquivalent(desired, actual *api.SentinelPolicy) bool {
+	if desired == nil || actual == nil {
+		return false
+	}
+	left, right := *desired, *actual
+	left.CreateIndex, left.ModifyIndex, right.CreateIndex, right.ModifyIndex = 0, 0, 0, 0
+	return reflect.DeepEqual(left, right)
+}
 
 func (sentinelPolicyAdapter) Kind() string { return "sentinel_policy" }
 
@@ -36,7 +47,7 @@ func (sentinelPolicyAdapter) Observe(ctx context.Context, client nomadclient.Res
 	if err != nil {
 		return plan.Observation{}, err
 	}
-	return plan.Observation{Present: true, Matches: reflect.DeepEqual(desired, actual)}, nil
+	return plan.Observation{Present: true, Matches: sentinelEquivalent(desired, actual)}, nil
 }
 
 func (sentinelPolicyAdapter) Replace(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) error {
@@ -79,7 +90,7 @@ func (sentinelPolicyAdapter) Adopt(ctx context.Context, lookup nomadclient.Resou
 	if actual == nil {
 		return managedResourceResult{}, fmt.Errorf("Sentinel policy %q not found", desired.Name)
 	}
-	if !reflect.DeepEqual(desired, actual) {
+	if !sentinelEquivalent(desired, actual) {
 		return managedResourceResult{}, fmt.Errorf("Sentinel policy %q does not match desired bundle resource", desired.Name)
 	}
 	return managedResourceResult{NomadID: desired.Name}, nil

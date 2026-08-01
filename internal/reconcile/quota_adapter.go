@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
+
+	"github.com/hashicorp/nomad/api"
 
 	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
@@ -12,6 +15,37 @@ import (
 )
 
 type quotaAdapter struct{}
+
+func quotaEquivalent(desired, actual *api.QuotaSpec) bool {
+	if desired == nil || actual == nil {
+		return false
+	}
+	left, right := normalizeQuota(desired), normalizeQuota(actual)
+	return reflect.DeepEqual(left, right)
+}
+
+func normalizeQuota(input *api.QuotaSpec) *api.QuotaSpec {
+	copy := *input
+	copy.CreateIndex, copy.ModifyIndex = 0, 0
+	copy.Limits = append([]*api.QuotaLimit(nil), input.Limits...)
+	for i, limit := range copy.Limits {
+		if limit != nil {
+			value := *limit
+			value.Hash = nil
+			copy.Limits[i] = &value
+		}
+	}
+	sort.SliceStable(copy.Limits, func(i, j int) bool {
+		if copy.Limits[i] == nil {
+			return true
+		}
+		if copy.Limits[j] == nil {
+			return false
+		}
+		return copy.Limits[i].Region < copy.Limits[j].Region
+	})
+	return &copy
+}
 
 func (quotaAdapter) Kind() string { return "quota" }
 
@@ -36,7 +70,7 @@ func (quotaAdapter) Observe(ctx context.Context, client nomadclient.ResourceClie
 	if err != nil {
 		return plan.Observation{}, err
 	}
-	return plan.Observation{Present: true, Matches: reflect.DeepEqual(desired, actual)}, nil
+	return plan.Observation{Present: true, Matches: quotaEquivalent(desired, actual)}, nil
 }
 
 func (quotaAdapter) Replace(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) error {
@@ -79,7 +113,7 @@ func (quotaAdapter) Adopt(ctx context.Context, lookup nomadclient.ResourceLookup
 	if actual == nil {
 		return managedResourceResult{}, fmt.Errorf("quota %q not found", desired.Name)
 	}
-	if !reflect.DeepEqual(desired, actual) {
+	if !quotaEquivalent(desired, actual) {
 		return managedResourceResult{}, fmt.Errorf("quota %q does not match desired bundle resource", desired.Name)
 	}
 	return managedResourceResult{NomadID: desired.Name}, nil

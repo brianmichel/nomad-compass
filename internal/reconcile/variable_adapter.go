@@ -45,7 +45,26 @@ func (variableAdapter) Observe(ctx context.Context, client nomadclient.ResourceC
 	return plan.Observation{Present: true, Matches: variableEquivalent(desired, actual)}, nil
 }
 
-func (variableAdapter) Replace(context.Context, nomadclient.ResourceClient, manifest.Resource, storage.ManagedResource) error {
+func (variableAdapter) Replace(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) error {
+	desired, err := manifest.CompileVariable(resource)
+	if err != nil {
+		return err
+	}
+	oldNamespace, oldPath := tracked.Namespace.String, tracked.NomadID.String
+	if oldNamespace == desired.Namespace && oldPath == desired.Path {
+		return nil
+	}
+	if resource.DeleteMode != manifest.DeleteModeAllow {
+		return fmt.Errorf("variable identity changes are protected; set delete = %q to allow replacement", manifest.DeleteModeAllow)
+	}
+	if existing, err := client.ObserveVariable(ctx, desired.Namespace, desired.Path); err != nil {
+		return err
+	} else if existing != nil {
+		return fmt.Errorf("variable %q already exists at the replacement identity", desired.Path)
+	}
+	if err := client.DeleteVariable(ctx, oldNamespace, oldPath); err != nil {
+		return fmt.Errorf("delete old variable identity: %w", err)
+	}
 	return nil
 }
 
