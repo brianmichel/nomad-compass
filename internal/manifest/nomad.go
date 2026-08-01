@@ -342,6 +342,189 @@ func stringMap(value interface{}) (map[string]string, error) {
 	return result, nil
 }
 
+// CompileNamespace decodes a native Nomad namespace body.
+func CompileNamespace(resource Resource) (*api.Namespace, error) {
+	if resource.Kind != "namespace" {
+		return nil, fmt.Errorf("resource %q is not a namespace", resource.Address)
+	}
+	values, err := decodeNativeValues(resource, map[string]struct{}{
+		"description": {}, "quota": {}, "capabilities": {}, "node_pool_config": {}, "vault": {}, "consul": {}, "meta": {},
+	})
+	if err != nil {
+		return nil, err
+	}
+	namespace := &api.Namespace{Name: resource.Name}
+	if err := strictDecode(values, namespace); err != nil {
+		return nil, fmt.Errorf("decode namespace %q: %w", resource.Address, err)
+	}
+	return namespace, nil
+}
+
+// CompileQuota decodes a native Nomad quota body.
+func CompileQuota(resource Resource) (*api.QuotaSpec, error) {
+	if resource.Kind != "quota" {
+		return nil, fmt.Errorf("resource %q is not a quota", resource.Address)
+	}
+	values, err := decodeNativeValues(resource, map[string]struct{}{"description": {}, "limit": {}})
+	if err != nil {
+		return nil, err
+	}
+	quota := &api.QuotaSpec{Name: resource.Name}
+	delete(values, "limit")
+	if err := strictDecode(values, quota); err != nil {
+		return nil, fmt.Errorf("decode quota %q: %w", resource.Address, err)
+	}
+	file, err := oldhcl.Parse(string(resource.Body))
+	if err != nil {
+		return nil, fmt.Errorf("parse quota %q: %w", resource.Address, err)
+	}
+	list, ok := file.Node.(*ast.ObjectList)
+	if !ok {
+		return nil, fmt.Errorf("quota %q body must be an object", resource.Address)
+	}
+	for _, item := range list.Filter("limit").Elem().Items {
+		limitValues := map[string]interface{}{}
+		if err := oldhcl.DecodeObject(&limitValues, item.Val); err != nil {
+			return nil, fmt.Errorf("decode quota %q limit: %w", resource.Address, err)
+		}
+		var regionLimit *api.QuotaResources
+		if nested, ok := item.Val.(*ast.ObjectList); ok {
+			for _, regionItem := range nested.Filter("region_limit").Elem().Items {
+				regionValues := map[string]interface{}{}
+				if err := oldhcl.DecodeObject(&regionValues, regionItem.Val); err != nil {
+					return nil, fmt.Errorf("decode quota %q region limit: %w", resource.Address, err)
+				}
+				regionLimit = &api.QuotaResources{}
+				if err := strictDecode(regionValues, regionLimit); err != nil {
+					return nil, fmt.Errorf("decode quota %q region limit: %w", resource.Address, err)
+				}
+				break
+			}
+		}
+		delete(limitValues, "region_limit")
+		var input struct {
+			Region         string `mapstructure:"region"`
+			VariablesLimit *int   `mapstructure:"variables_limit"`
+		}
+		if err := strictDecode(limitValues, &input); err != nil {
+			return nil, fmt.Errorf("decode quota %q limit: %w", resource.Address, err)
+		}
+		quota.Limits = append(quota.Limits, &api.QuotaLimit{Region: input.Region, RegionLimit: regionLimit, VariablesLimit: input.VariablesLimit})
+	}
+	if len(quota.Limits) == 0 {
+		return nil, fmt.Errorf("quota %q must contain a limit block", resource.Address)
+	}
+	return quota, nil
+}
+
+// CompileVariable decodes a native Nomad variable body. The resource name is
+// the default path, allowing the Compass address to remain stable if the body
+// is moved between files.
+func CompileVariable(resource Resource) (*api.Variable, error) {
+	if resource.Kind != "variable" {
+		return nil, fmt.Errorf("resource %q is not a variable", resource.Address)
+	}
+	values, err := decodeNativeValues(resource, map[string]struct{}{"namespace": {}, "path": {}, "items": {}})
+	if err != nil {
+		return nil, err
+	}
+	variable := &api.Variable{Path: resource.Name}
+	if err := strictDecode(values, variable); err != nil {
+		return nil, fmt.Errorf("decode variable %q: %w", resource.Address, err)
+	}
+	if variable.Path == "" {
+		variable.Path = resource.Name
+	}
+	if variable.Namespace == "" {
+		variable.Namespace = "default"
+	}
+	if len(variable.Items) == 0 {
+		return nil, fmt.Errorf("variable %q must contain items", resource.Address)
+	}
+	return variable, nil
+}
+
+func strictDecode(values map[string]interface{}, target interface{}) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{Result: target, TagName: "mapstructure", ErrorUnused: true, WeaklyTypedInput: true})
+	if err != nil {
+		return err
+	}
+	return decoder.Decode(values)
+}
+
+func decodeNativeValues(resource Resource, allowed map[string]struct{}) (map[string]interface{}, error) {
+	file, err := oldhcl.Parse(string(resource.Body))
+	if err != nil {
+		return nil, fmt.Errorf("parse %s %q: %w", resource.Kind, resource.Address, err)
+	}
+	list, ok := file.Node.(*ast.ObjectList)
+	if !ok {
+		return nil, fmt.Errorf("%s %q body must be an object", resource.Kind, resource.Address)
+	}
+	values := map[string]interface{}{}
+	if err := oldhcl.DecodeObject(&values, list); err != nil {
+		return nil, fmt.Errorf("decode %s %q: %w", resource.Kind, resource.Address, err)
+	}
+	for name := range values {
+		if _, ok := allowed[name]; !ok {
+			return nil, fmt.Errorf("%s %q has unsupported attribute or block %q", resource.Kind, resource.Address, name)
+		}
+	}
+	return values, nil
+}
+
+// CompileSentinelPolicy decodes a native Nomad Sentinel policy body.
+func CompileSentinelPolicy(resource Resource) (*api.SentinelPolicy, error) {
+	if resource.Kind != "sentinel_policy" {
+		return nil, fmt.Errorf("resource %q is not a Sentinel policy", resource.Address)
+	}
+	file, diags := hclwrite.ParseConfig(resource.Body, resource.SourcePath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parse Sentinel policy %q: %s", resource.Address, diags.Error())
+	}
+	body := file.Body()
+	allowed := map[string]struct{}{"description": {}, "scope": {}, "enforcement_level": {}, "policy": {}}
+	for _, block := range body.Blocks() {
+		return nil, fmt.Errorf("Sentinel policy %q has unsupported block %q", resource.Address, block.Type())
+	}
+	for name := range body.Attributes() {
+		if _, ok := allowed[name]; !ok {
+			return nil, fmt.Errorf("Sentinel policy %q has unsupported attribute %q", resource.Address, name)
+		}
+	}
+	read := func(name string, required bool) (string, error) {
+		attr := body.GetAttribute(name)
+		if attr == nil {
+			if required {
+				return "", fmt.Errorf("Sentinel policy %q must define %s", resource.Address, name)
+			}
+			return "", nil
+		}
+		value, err := stringAttribute(attr, resource.SourcePath)
+		if err != nil {
+			return "", fmt.Errorf("Sentinel policy %q %s: %w", resource.Address, name, err)
+		}
+		return value, nil
+	}
+	description, err := read("description", false)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := read("scope", true)
+	if err != nil {
+		return nil, err
+	}
+	enforcement, err := read("enforcement_level", true)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := read("policy", true)
+	if err != nil {
+		return nil, err
+	}
+	return &api.SentinelPolicy{Name: resource.Name, Description: description, Scope: scope, EnforcementLevel: enforcement, Policy: policy}, nil
+}
+
 // CompileACLPolicy converts an embedded policy rules block into the raw HCL
 // string required by Nomad's ACL policy API.
 func CompileACLPolicy(resource Resource) (*api.ACLPolicy, error) {
