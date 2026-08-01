@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 )
 
 func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
@@ -19,7 +21,14 @@ func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/status":
 			_ = json.NewEncoder(w).Encode(statusResponse{NomadConnected: true})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/repos":
-			_ = json.NewEncoder(w).Encode([]repositoryResponse{{ID: 7, Name: "homelab", Branch: "main", RepoURL: "https://example.test/repo"}})
+			credentialID := int64(9)
+			commit := "commit-1"
+			author := "Tester <tester@example.com>"
+			_ = json.NewEncoder(w).Encode([]repositoryResponse{{
+				ID: 7, Name: "homelab", Branch: "main", RepoURL: "https://example.test/repo", CredentialID: &credentialID,
+				LastCommit: &commit, LastCommitAuthor: &author,
+				Jobs: []repositoryJob{{Path: "jobs/api.nomad", JobName: "api", Namespace: "apps", StatusDescription: "healthy", Allocations: []nomadclient.AllocationStatus{{ID: "alloc-1", Status: "running"}}}},
+			}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/repos":
 			_ = json.NewEncoder(w).Encode(repositoryResponse{ID: 8, Name: "new-repo"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/repos/8/reconcile":
@@ -52,8 +61,10 @@ func TestRunAPICommandsUseGlobalOptionsBeforeVerbs(t *testing.T) {
 	if err := Run(context.Background(), []string{"--server", server.URL, "repo", "list", "--format", "json"}, nil, &reposOutput, nil); err != nil {
 		t.Fatalf("repo list: %v", err)
 	}
-	if !strings.Contains(reposOutput.String(), `"name": "homelab"`) {
-		t.Fatalf("unexpected repo output: %s", reposOutput.String())
+	for _, field := range []string{`"credential_id": 9`, `"last_commit_author": "Tester `, `"job_name": "api"`, `"status_description": "healthy"`, `"id": "alloc-1"`} {
+		if !strings.Contains(reposOutput.String(), field) {
+			t.Fatalf("repository JSON lost %s: %s", field, reposOutput.String())
+		}
 	}
 
 	var addOutput bytes.Buffer

@@ -61,9 +61,9 @@ Nomad Compass is configured via environment variables:
 The binary also exposes a side-effect-free bundle validation command. It parses the manifest, checks dependency ordering, validates supported native Nomad resource bodies, and prints stable spec and manifest hashes. It does not require `COMPASS_CREDENTIAL_KEY`, a database, or a live Nomad cluster:
 
 ```bash
-go run ./cmd/nomad-compass bundle validate --file example/homelab-compass.bundle.hcl
-cat example/homelab-compass.bundle.hcl | go run ./cmd/nomad-compass bundle validate --file -
-go run ./cmd/nomad-compass --format json bundle validate --file example/homelab-compass.bundle.hcl
+go run ./cmd/nomad-compass bundle validate --file examples/homelab-compass.bundle.hcl
+cat examples/homelab-compass.bundle.hcl | go run ./cmd/nomad-compass bundle validate --file -
+go run ./cmd/nomad-compass --format json bundle validate --file examples/homelab-compass.bundle.hcl
 ```
 
 To compare two manifests and get a compact change summary, use the offline bundle plan command:
@@ -155,7 +155,7 @@ Run it in Nomad
 ```bash
 nomad run \
   -var="credential_key=$(openssl rand -hex 32)" \
-  example/nomad-compass.nomad.hcl
+  examples/nomad-compass.nomad.hcl
 ```
 
 Mount `/data` or change `COMPASS_DATABASE_PATH`/`COMPASS_REPO_BASE_DIR` if you prefer persistent volumes.
@@ -178,7 +178,7 @@ bundle "example" {
 }
 ```
 
-Resources can declare Compass-owned dependencies and deletion behavior with `depends_on` and `delete = "protect"`. Jobs, host/CSI volumes, and ACL policies are currently wired into reconciliation; the parser also reserves names for future resources such as namespaces, node pools, and quotas. Volume and ACL policy resources are protected from deletion by default; use `delete = "allow"` only when replacement or removal is intentional. Resource addresses (`kind.name`) are the stable Compass identities, independent of the bundle file path. Volume body changes require an explicitly allowed replacement. Volume resources require the matching host-volume or CSI ACL capabilities, and ACL policy resources require a management-capable bootstrap token. See `example/homelab-compass.bundle.hcl` for a real homelab-shaped example.
+Resources can declare Compass-owned dependencies and deletion behavior with `depends_on` and `delete = "protect"`. Jobs, host/CSI volumes, ACL policies, namespaces, quotas, variables, and Sentinel policies are wired into reconciliation. ACL auth methods, ACL binding rules, and ACL tokens remain reserved until their generated identities and secret-handling workflows are finalized. Destructive resources are protected from deletion by default; use `delete = "allow"` only when replacement or removal is intentional. Resource addresses (`kind.name`) are the stable Compass identities, independent of the bundle file path. Volume body changes require an explicitly allowed replacement. Volume resources require the matching host-volume or CSI ACL capabilities, and ACL policy resources require a management-capable bootstrap token. See `examples/homelab-compass.bundle.hcl` for a homelab-shaped example and `examples/complex-bundle/` for a dependency-rich validation fixture.
 
 ### Repository onboarding workflow
 
@@ -214,6 +214,23 @@ To leave the local Nomad and Compass processes running for manual inspection:
 
 ```bash
 COMPASS_E2E_KEEP_RUNNING=1 mise run e2e-local
+```
+
+To load the complex example into the temporary Git repository without
+reconciling it automatically, then trigger the sync yourself:
+
+```bash
+COMPASS_E2E_BUNDLE=complex \
+COMPASS_E2E_MANUAL_SYNC=1 \
+COMPASS_E2E_KEEP_RUNNING=1 \
+mise run e2e-local
+
+# The script prints the repository ID; usually it is 1.
+go run ./cmd/nomad-compass --server http://127.0.0.1:18080 \
+  repo plan --id 1
+
+go run ./cmd/nomad-compass --server http://127.0.0.1:18080 \
+  repo reconcile --id 1
 ```
 
 Vue component tests are not included yet. The backend carries the bulk of logic and has targeted unit coverage.

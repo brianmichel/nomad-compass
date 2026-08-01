@@ -2,7 +2,6 @@ package reconcile
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -69,11 +68,7 @@ func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClien
 		return managedResourceResult{}, err
 	}
 	if tracked.Address == "" {
-		lookup, ok := client.(nomadclient.ResourceLookup)
-		if !ok {
-			return managedResourceResult{}, errors.New("resource client must support ownership lookup before applying a volume")
-		}
-		exists, err := (volumeAdapter{}).Lookup(ctx, lookup, resource)
+		exists, err := (volumeAdapter{}).Lookup(ctx, client, resource)
 		if err != nil {
 			return managedResourceResult{}, err
 		}
@@ -133,7 +128,17 @@ func (volumeAdapter) Adopt(ctx context.Context, lookup nomadclient.ResourceLooku
 		}
 		return managedResourceResult{NomadID: volume.ID, Namespace: volume.Namespace, Subtype: "host"}, nil
 	}
-	volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+	id := spec.CSI.ID
+	if id == "" {
+		id = resource.Name
+	}
+	observer, ok := lookup.(interface {
+		ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error)
+	})
+	if !ok {
+		return managedResourceResult{}, fmt.Errorf("CSI ownership lookup for %q is not supported", id)
+	}
+	volume, err := observer.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
 	if err != nil {
 		return managedResourceResult{}, fmt.Errorf("find CSI volume %q: %w", resource.Name, err)
 	}

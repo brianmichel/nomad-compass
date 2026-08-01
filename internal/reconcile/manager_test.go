@@ -1149,6 +1149,7 @@ type fakeNomad struct {
 	jobStatusErr     error
 	jobStatuses      map[string]*nomadclient.JobStatus
 	hostVolume       *api.HostVolume
+	csiVolume        *api.CSIVolume
 	aclPolicy        *api.ACLPolicy
 	namespace        *api.Namespace
 	quota            *api.QuotaSpec
@@ -1250,8 +1251,11 @@ func (f *fakeNomad) ApplyCSIVolume(_ context.Context, volume *api.CSIVolume) (*a
 	return volume, nil
 }
 
-func (f *fakeNomad) ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error) {
-	return nil, nil
+func (f *fakeNomad) ObserveCSIVolume(_ context.Context, id, _ string) (*api.CSIVolume, error) {
+	if f.csiVolume == nil || f.csiVolume.ID != id {
+		return nil, nil
+	}
+	return f.csiVolume, nil
 }
 
 func (f *fakeNomad) DeleteCSIVolume(context.Context, string, string, bool) error {
@@ -1320,6 +1324,13 @@ func (f *fakeNomad) DeleteQuota(_ context.Context, name string) error {
 
 func (f *fakeNomad) ApplyVariable(_ context.Context, variable *api.Variable) (*api.Variable, error) {
 	f.resourceCalls = append(f.resourceCalls, "variable:"+variable.Path)
+	copy := *variable
+	f.variable = &copy
+	return &copy, nil
+}
+
+func (f *fakeNomad) CreateVariable(_ context.Context, variable *api.Variable) (*api.Variable, error) {
+	f.resourceCalls = append(f.resourceCalls, "create-variable:"+variable.Path)
 	copy := *variable
 	f.variable = &copy
 	return &copy, nil

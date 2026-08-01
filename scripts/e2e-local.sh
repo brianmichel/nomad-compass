@@ -2,8 +2,24 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NOMAD_ADDR="http://127.0.0.1:4646"
-COMPASS_ADDR="http://127.0.0.1:18080"
+NOMAD_PORT="${COMPASS_E2E_NOMAD_PORT:-4646}"
+COMPASS_PORT="${COMPASS_E2E_COMPASS_PORT:-18080}"
+NOMAD_ADDR="http://127.0.0.1:${NOMAD_PORT}"
+COMPASS_ADDR="http://127.0.0.1:${COMPASS_PORT}"
+E2E_NAMESPACE="e2e"
+E2E_VOLUME_ID="compass-e2e-data"
+E2E_POLICY="e2e"
+E2E_JOB="e2e"
+E2E_VARIABLE_PATH=""
+E2E_TASK="verify"
+if [[ "${COMPASS_E2E_BUNDLE:-simple}" == "complex" ]]; then
+  E2E_NAMESPACE="apps"
+  E2E_VOLUME_ID="platform-app-data"
+  E2E_POLICY="platform"
+  E2E_JOB="api"
+  E2E_VARIABLE_PATH="apps/config"
+  E2E_TASK="server"
+fi
 WORK_ROOT="${COMPASS_E2E_WORK_ROOT:-$ROOT/.tmp}"
 mkdir -p "$WORK_ROOT"
 WORK="$(mktemp -d "$WORK_ROOT/nomad-compass-e2e.XXXXXX")"
@@ -23,6 +39,9 @@ cleanup() {
     wait "$COMPASS_PID" 2>/dev/null || true
   fi
   if [[ -n "$NOMAD_PID" ]]; then
+    NOMAD_ADDR="$NOMAD_ADDR" NOMAD_TOKEN="${NOMAD_TOKEN-}" nomad job stop -purge -namespace="$E2E_NAMESPACE" "$E2E_JOB" >/dev/null 2>&1 || true
+    sleep 2
+    for container in $(docker ps -aq --filter "label=com.hashicorp.nomad.job.name=$E2E_JOB"); do docker rm -f "$container" >/dev/null 2>&1 || true; done
     kill "$NOMAD_PID" 2>/dev/null || true
     wait "$NOMAD_PID" 2>/dev/null || true
   fi
@@ -48,13 +67,13 @@ fail() {
   echo "--- Nomad log ---" >&2
   sed -n '1,240p' "$WORK/nomad.log" 2>/dev/null || true
   echo "--- Nomad volume status ---" >&2
-  NOMAD_ADDR="$NOMAD_ADDR" NOMAD_TOKEN="${NOMAD_TOKEN-}" nomad volume status compass-e2e-data 2>/dev/null || true
+  NOMAD_ADDR="$NOMAD_ADDR" NOMAD_TOKEN="${NOMAD_TOKEN-}" nomad volume status -namespace="$E2E_NAMESPACE" "$E2E_VOLUME_ID" 2>/dev/null || true
   echo "--- Nomad node status ---" >&2
   NOMAD_ADDR="$NOMAD_ADDR" NOMAD_TOKEN="${NOMAD_TOKEN-}" nomad node status -self -verbose 2>/dev/null || true
   echo "--- Nomad job volume request ---" >&2
-  NOMAD_ADDR="$NOMAD_ADDR" nomad job inspect -json e2e 2>/dev/null | python3 -c 'import json,sys; j=json.load(sys.stdin); print(json.dumps(j.get("TaskGroups", [{}])[0].get("Volumes", {}), indent=2))' 2>/dev/null || true
+  NOMAD_ADDR="$NOMAD_ADDR" nomad job inspect -namespace="$E2E_NAMESPACE" -json "$E2E_JOB" 2>/dev/null | python3 -c 'import json,sys; j=json.load(sys.stdin); print(json.dumps(j.get("TaskGroups", [{}])[0].get("Volumes", {}), indent=2))' 2>/dev/null || true
   echo "--- Nomad job status ---" >&2
-  NOMAD_ADDR="$NOMAD_ADDR" nomad job status e2e 2>/dev/null || true
+  NOMAD_ADDR="$NOMAD_ADDR" nomad job status -namespace="$E2E_NAMESPACE" "$E2E_JOB" 2>/dev/null || true
   echo "--- Compass log ---" >&2
   sed -n '1,240p' "$WORK/compass.log" 2>/dev/null || true
   exit 1
@@ -134,12 +153,21 @@ BOOTSTRAP_JSON="$(NOMAD_ADDR="$NOMAD_ADDR" nomad acl bootstrap -json)"
 export NOMAD_TOKEN="$(printf '%s' "$BOOTSTRAP_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin)["SecretID"])')"
 export NOMAD_ADDR
 
+if [[ "${COMPASS_E2E_BUNDLE:-simple}" == "complex" ]]; then
+  cp "$ROOT/examples/complex-bundle/compass.bundle.hcl" "$WORK/repo/.nomad/compass.bundle.hcl"
+else
 cat > "$WORK/repo/.nomad/compass.bundle.hcl" <<'EOF'
 bundle "local-e2e" {
+  resource "namespace" "e2e" {
+    delete      = "protect"
+    description = "Namespace used by the local Compass E2E"
+  }
+
   resource "volume" "data" {
     delete = "protect"
 
     name      = "compass-e2e-data"
+    namespace = "e2e"
     type      = "host"
     plugin_id = "mkdir"
 
@@ -153,7 +181,7 @@ bundle "local-e2e" {
     delete = "protect"
 
     rules {
-      namespace "default" {
+      namespace "e2e" {
         capabilities = [
           "read-job",
           "submit-job",
@@ -164,10 +192,12 @@ bundle "local-e2e" {
 
   resource "job" "e2e" {
     depends_on = [
+      "namespace.e2e",
       "volume.data",
       "acl_policy.e2e",
     ]
 
+    namespace   = "e2e"
     datacenters = ["dc1"]
     type        = "service"
 
@@ -187,12 +217,13 @@ bundle "local-e2e" {
         config {
           image   = "busybox:1.36"
           command = "sh"
-          args    = ["-c", "mkdir -p /mnt/data && echo bundle-e2e-ok >/mnt/data/marker && sleep 3600"]
+          args    = ["-c", "test -d /mnt/data && echo bundle-e2e-ok && sleep 3600"]
         }
 
         volume_mount {
           volume      = "data"
           destination = "/mnt/data"
+          read_only   = false
         }
 
         resources {
@@ -204,6 +235,7 @@ bundle "local-e2e" {
   }
 }
 EOF
+fi
 
 cd "$WORK/repo"
 git init --initial-branch=main >/dev/null
@@ -212,10 +244,14 @@ git config user.name "Compass E2E"
 git add .
 git commit -m "initial bundle" >/dev/null
 
-export COMPASS_HTTP_ADDR="127.0.0.1:18080"
+export COMPASS_HTTP_ADDR="127.0.0.1:${COMPASS_PORT}"
 export COMPASS_DATABASE_PATH="$WORK/compass.sqlite"
 export COMPASS_REPO_BASE_DIR="$WORK/clones"
-export COMPASS_REPO_POLL_SECONDS=2
+if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then
+  export COMPASS_REPO_POLL_SECONDS=3600
+else
+  export COMPASS_REPO_POLL_SECONDS=2
+fi
 export COMPASS_NOMAD_ADDR="$NOMAD_ADDR"
 export COMPASS_NOMAD_TOKEN="$NOMAD_TOKEN"
 export COMPASS_CREDENTIAL_KEY="$(openssl rand -hex 32)"
@@ -234,29 +270,51 @@ for _ in $(seq 1 60); do
 done
 curl -fsS "$COMPASS_ADDR/api/health" >/dev/null 2>&1 || fail "Compass did not become ready"
 
+INITIAL_RECONCILE=true
+if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then INITIAL_RECONCILE=false; fi
 RESPONSE="$(curl -fsS -X POST "$COMPASS_ADDR/api/repos" \
   -H 'Content-Type: application/json' \
-  -d "$(python3 -c 'import json,sys; print(json.dumps({"name":"local-e2e","repo_url":sys.argv[1],"branch":"main","job_path":".nomad"}))' "$WORK/repo")")"
+  -d "$(python3 -c 'import json,sys; print(json.dumps({"name":"local-e2e","repo_url":sys.argv[1],"branch":"main","job_path":".nomad","initial_reconcile":sys.argv[2]=="true"}))' "$WORK/repo" "$INITIAL_RECONCILE")")"
 REPO_ID="$(printf '%s' "$RESPONSE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
+if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then
+  [[ "$KEEP_RUNNING" == "1" ]] || fail "COMPASS_E2E_MANUAL_SYNC=1 requires COMPASS_E2E_KEEP_RUNNING=1"
+  write_inspection_env
+  printf '\nLocal bundle environment ready for manual sync.\n'
+  printf '  repository: %s\n' "$REPO_ID"
+  printf '  bundle:     %s\n' "${COMPASS_E2E_BUNDLE:-simple}"
+  printf '  Nomad:      %s\n' "$NOMAD_ADDR"
+  printf '  Compass:    %s\n' "$COMPASS_ADDR"
+  printf '  logs:       %s\n' "$WORK"
+  printf '\nRun: go run ./cmd/nomad-compass --server %s repo reconcile --id %s\n' "$COMPASS_ADDR" "$REPO_ID"
+  exit 0
+fi
+
 for _ in $(seq 1 60); do
-  if NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host compass-e2e-data >/dev/null 2>&1 \
-    && NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info e2e >/dev/null 2>&1 \
-    && NOMAD_ADDR="$NOMAD_ADDR" nomad job status e2e 2>/dev/null | grep "running" >/dev/null; then
+  if NOMAD_ADDR="$NOMAD_ADDR" nomad namespace status "$E2E_NAMESPACE" >/dev/null 2>&1 \
+    && NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host -namespace="$E2E_NAMESPACE" "$E2E_VOLUME_ID" >/dev/null 2>&1 \
+    && NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info "$E2E_POLICY" >/dev/null 2>&1 \
+    && NOMAD_ADDR="$NOMAD_ADDR" nomad job status -namespace="$E2E_NAMESPACE" "$E2E_JOB" 2>/dev/null | grep "running" >/dev/null; then
     break
   fi
   sleep 1
 done
 
-NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host compass-e2e-data >/dev/null 2>&1 || fail "host volume was not created"
-NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info e2e >/dev/null 2>&1 || fail "ACL policy was not created"
-NOMAD_ADDR="$NOMAD_ADDR" nomad job status e2e | grep "running" >/dev/null || fail "job did not reach running state"
+NOMAD_ADDR="$NOMAD_ADDR" nomad namespace status "$E2E_NAMESPACE" >/dev/null 2>&1 || fail "E2E namespace was not created"
+NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host -namespace="$E2E_NAMESPACE" "$E2E_VOLUME_ID" >/dev/null 2>&1 || fail "host volume was not created"
+NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info "$E2E_POLICY" >/dev/null 2>&1 || fail "ACL policy was not created"
+NOMAD_ADDR="$NOMAD_ADDR" nomad job status -namespace="$E2E_NAMESPACE" "$E2E_JOB" | grep "running" >/dev/null || fail "job did not reach running state"
+ALLOC_ID="$(NOMAD_ADDR="$NOMAD_ADDR" nomad job allocs -json -namespace="$E2E_NAMESPACE" "$E2E_JOB" | python3 -c 'import json,sys; allocs=json.load(sys.stdin); running=[a for a in allocs if a.get("ClientStatus")=="running"]; print(running[0]["ID"] if running else "")')"
+[[ -n "$ALLOC_ID" ]] || fail "job has no running allocation"
+NOMAD_ADDR="$NOMAD_ADDR" nomad alloc status -namespace="$E2E_NAMESPACE" "$ALLOC_ID" | grep "$E2E_TASK" >/dev/null || fail "expected task $E2E_TASK was not reported"
+NOMAD_ADDR="$NOMAD_ADDR" nomad alloc logs -namespace="$E2E_NAMESPACE" "$ALLOC_ID" "$E2E_TASK" 2>/dev/null | grep -E "bundle-e2e-ok|complex-bundle-ok|running" >/dev/null || fail "task $E2E_TASK did not produce its health marker"
+if [[ -n "$E2E_VARIABLE_PATH" ]]; then NOMAD_ADDR="$NOMAD_ADDR" nomad var get -namespace="$E2E_NAMESPACE" "$E2E_VARIABLE_PATH" | grep "production" >/dev/null || fail "complex variable was not created"; fi
 
 curl -fsS -X POST "$COMPASS_ADDR/api/repos/$REPO_ID/reconcile" >/dev/null
 sleep 2
-NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host compass-e2e-data >/dev/null || fail "volume disappeared after idempotent reconcile"
-NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info e2e >/dev/null || fail "policy disappeared after idempotent reconcile"
-NOMAD_ADDR="$NOMAD_ADDR" nomad job status e2e | grep "running" >/dev/null || fail "job stopped after idempotent reconcile"
+NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host -namespace="$E2E_NAMESPACE" "$E2E_VOLUME_ID" >/dev/null || fail "volume disappeared after idempotent reconcile"
+NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info "$E2E_POLICY" >/dev/null || fail "policy disappeared after idempotent reconcile"
+NOMAD_ADDR="$NOMAD_ADDR" nomad job status -namespace="$E2E_NAMESPACE" "$E2E_JOB" | grep "running" >/dev/null || fail "job stopped after idempotent reconcile"
 
 printf '\nLocal bundle E2E passed.\n'
 printf '  repository: %s\n' "$REPO_ID"
