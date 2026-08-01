@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -65,8 +66,17 @@ func (volumeAdapter) Lookup(ctx context.Context, lookup nomadclient.ResourceLook
 		volume, err := lookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
 		return volume != nil, err
 	}
-	volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
-	return volume != nil, err
+	id := spec.CSI.ID
+	if id == "" {
+		id = resource.Name
+	}
+	if observer, ok := lookup.(interface {
+		ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error)
+	}); ok {
+		volume, err := observer.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
+		return volume != nil, err
+	}
+	return false, fmt.Errorf("CSI ownership lookup for %q is not supported", id)
 }
 
 func (volumeAdapter) Observe(ctx context.Context, client nomadclient.ResourceClient, resource manifest.Resource, tracked storage.ManagedResource) (plan.Observation, error) {
@@ -90,14 +100,16 @@ func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClien
 		return managedResourceResult{}, err
 	}
 	if tracked.Address == "" {
-		if lookup, ok := client.(nomadclient.ResourceLookup); ok {
-			exists, err := (volumeAdapter{}).Lookup(ctx, lookup, resource)
-			if err != nil {
-				return managedResourceResult{}, err
-			}
-			if exists {
-				return managedResourceResult{}, fmt.Errorf("volume %q already exists but is not managed by this repository", resource.Name)
-			}
+		lookup, ok := client.(nomadclient.ResourceLookup)
+		if !ok {
+			return managedResourceResult{}, errors.New("resource client must support ownership lookup before applying a volume")
+		}
+		exists, err := (volumeAdapter{}).Lookup(ctx, lookup, resource)
+		if err != nil {
+			return managedResourceResult{}, err
+		}
+		if exists {
+			return managedResourceResult{}, fmt.Errorf("volume %q already exists but is not managed by this repository", resource.Name)
 		}
 	}
 	switch spec.Type {
