@@ -89,13 +89,14 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 	var resources []ManagedResource
 	for rows.Next() {
 		var resource ManagedResource
+		var sourcePath sql.NullString
 		var resourceDependsOn sql.NullString
 		if err := rows.Scan(
 			&resource.ID,
 			&resource.RepoID,
 			&resource.Address,
 			&resource.Kind,
-			&resource.SourcePath,
+			&sourcePath,
 			&resource.NomadID,
 			&resource.Namespace,
 			&resource.ContentHash,
@@ -110,6 +111,7 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 		); err != nil {
 			return nil, err
 		}
+		resource.SourcePath = sourcePath.String
 		if resourceDependsOn.Valid && resourceDependsOn.String != "" {
 			if err := json.Unmarshal([]byte(resourceDependsOn.String), &resource.DependsOn); err != nil {
 				return nil, err
