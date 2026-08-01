@@ -204,10 +204,11 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	payload := storage.CredentialPayload{
-		Token:      req.Token,
-		Username:   req.Username,
-		PrivateKey: req.PrivateKey,
-		Passphrase: req.Passphrase,
+		Token: req.Token, Username: req.Username, PrivateKey: req.PrivateKey, Passphrase: req.Passphrase,
+	}
+	if err := storage.ValidateCredential(storage.CredentialType(req.Type), payload); err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
 	}
 
 	cred, err := s.creds.Create(r.Context(), req.Name, storage.CredentialType(req.Type), payload)

@@ -29,8 +29,28 @@ func NewCredentialStore(db *sql.DB, encryptor *auth.Encryptor) *CredentialStore 
 	return &CredentialStore{db: db, encryptor: encryptor}
 }
 
+// ValidateCredential checks the type-specific fields before persistence.
+func ValidateCredential(ctype CredentialType, payload CredentialPayload) error {
+	switch ctype {
+	case CredentialTypeHTTPToken:
+		if payload.Token == "" {
+			return errors.New("HTTPS token is required")
+		}
+	case CredentialTypeSSHKey:
+		if payload.PrivateKey == "" {
+			return errors.New("SSH private key is required")
+		}
+	default:
+		return fmt.Errorf("unsupported credential type: %s", ctype)
+	}
+	return nil
+}
+
 // Create stores a new credential entry.
 func (s *CredentialStore) Create(ctx context.Context, name string, ctype CredentialType, payload CredentialPayload) (*Credential, error) {
+	if err := ValidateCredential(ctype, payload); err != nil {
+		return nil, err
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)

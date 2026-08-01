@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/brianmichel/nomad-compass/internal/auth"
+	"github.com/brianmichel/nomad-compass/internal/cli"
 	"github.com/brianmichel/nomad-compass/internal/config"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	"github.com/brianmichel/nomad-compass/internal/reconcile"
@@ -19,6 +21,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := cli.Run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
