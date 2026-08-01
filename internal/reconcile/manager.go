@@ -911,7 +911,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 			continue
 		}
 		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
-			_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
+			if err := m.managed.Upsert(ctx, storage.ManagedResourceInput{
 				RepoID:       repoRecord.ID,
 				Address:      resource.Address,
 				Kind:         resource.Kind,
@@ -926,7 +926,9 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
 				DependsOn:    resource.DependsOn,
-			})
+			}); err != nil {
+				return fmt.Errorf("record protected orphan %q: %w", resource.Address, err)
+			}
 			continue
 		}
 		if err := deleteManagedResource(ctx, resourceClient, resource); err != nil {
