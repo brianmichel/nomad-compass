@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -903,10 +904,17 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 	if err != nil {
 		return err
 	}
+	protectedDependencies := protectedDependencyClosure(removed)
 	for _, resource := range orderedRemoved {
 		if newAddress, moved := transferred[resource.Address]; moved {
 			if err := m.managed.Delete(ctx, repoRecord.ID, resource.Address); err != nil {
 				return fmt.Errorf("transfer managed resource %q to %q: %w", resource.Address, newAddress, err)
+			}
+			continue
+		}
+		if resource.DeleteMode != string(manifest.DeleteModeProtect) && protectedDependencies[resource.Address] {
+			if err := m.managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: repoRecord.ID, Address: resource.Address, Kind: resource.Kind, SourcePath: resource.SourcePath, NomadID: resource.NomadID.String, Namespace: resource.Namespace.String, ContentHash: resource.ContentHash.String, ManifestHash: resource.ManifestHash.String, LastCommit: resource.LastCommit.String, Status: "protected", LastError: "dependency retained because a protected dependent remains", DeleteMode: resource.DeleteMode, Subtype: resource.Subtype.String, DependsOn: resource.DependsOn.String}); err != nil {
+				return err
 			}
 			continue
 		}
@@ -925,7 +933,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				LastError:    "resource removed from bundle but deletion is protected",
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
-				DependsOn:    resource.DependsOn,
+				DependsOn:    resource.DependsOn.String,
 			}); err != nil {
 				return fmt.Errorf("record protected orphan %q: %w", resource.Address, err)
 			}
@@ -956,7 +964,7 @@ func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snaps
 		LastError:    lastError,
 		DeleteMode:   string(resource.DeleteMode),
 		Subtype:      subtype,
-		DependsOn:    resource.DependsOn,
+		DependsOn:    encodedDependencies(resource),
 	})
 }
 
@@ -982,7 +990,13 @@ func managedDeletionOrder(resources []storage.ManagedResource) ([]storage.Manage
 			return nil
 		}
 		state[address] = 1
-		for _, dependency := range resource.DependsOn {
+		var dependencies []string
+		if resource.DependsOn.Valid && resource.DependsOn.String != "" {
+			if err := json.Unmarshal([]byte(resource.DependsOn.String), &dependencies); err != nil {
+				return fmt.Errorf("invalid dependencies for %q: %w", address, err)
+			}
+		}
+		for _, dependency := range dependencies {
 			if err := visit(dependency); err != nil {
 				return err
 			}
@@ -1003,6 +1017,46 @@ func managedDeletionOrder(resources []storage.ManagedResource) ([]storage.Manage
 		ordered[left], ordered[right] = ordered[right], ordered[left]
 	}
 	return ordered, nil
+}
+
+func protectedDependencyClosure(resources []storage.ManagedResource) map[string]bool {
+	byAddress := make(map[string]storage.ManagedResource, len(resources))
+	for _, resource := range resources {
+		byAddress[resource.Address] = resource
+	}
+	protected := make(map[string]bool)
+	var visit func(string)
+	visit = func(address string) {
+		resource, ok := byAddress[address]
+		if !ok || protected[address] {
+			return
+		}
+		protected[address] = true
+		var deps []string
+		if resource.DependsOn.Valid {
+			_ = json.Unmarshal([]byte(resource.DependsOn.String), &deps)
+		}
+		for _, dep := range deps {
+			visit(dep)
+		}
+	}
+	for _, resource := range resources {
+		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+			var deps []string
+			if resource.DependsOn.Valid {
+				_ = json.Unmarshal([]byte(resource.DependsOn.String), &deps)
+			}
+			for _, dep := range deps {
+				visit(dep)
+			}
+		}
+	}
+	return protected
+}
+
+func encodedDependencies(resource manifest.Resource) string {
+	encoded, _ := json.Marshal(resource.DependsOn)
+	return string(encoded)
 }
 
 func validateUniqueVolumeIdentities(resources []manifest.Resource) error {
@@ -1168,9 +1222,6 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			return err
 		}
 		if exists {
-			if tracked.ManifestHash.Valid && tracked.ManifestHash.String == manifestHash {
-				return nil
-			}
 			return m.upsertManagedResource(ctx, repoID, snapshot, resource, tracked.NomadID.String, tracked.Namespace.String, hash, manifestHash, "applied", "", tracked.Subtype.String)
 		}
 	}
@@ -1213,7 +1264,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
-			DependsOn:    resource.DependsOn,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("prepare bundle resource %q: %w", resource.Address, err)
 	}
@@ -1284,7 +1335,7 @@ func (m *Manager) ensureManagedResource(ctx context.Context, repoID int64, snaps
 			LastError:    err.Error(),
 			DeleteMode:   string(resource.DeleteMode),
 			Subtype:      tracked.Subtype.String,
-			DependsOn:    resource.DependsOn,
+			DependsOn:    encodedDependencies(resource),
 		})
 		return fmt.Errorf("apply bundle resource %q: %w", resource.Address, err)
 	}

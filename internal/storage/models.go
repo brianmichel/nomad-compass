@@ -66,6 +66,6 @@ type ManagedResource struct {
 	LastError    sql.NullString
 	DeleteMode   string
 	Subtype      sql.NullString
-	DependsOn    []string
+	DependsOn    sql.NullString
 	UpdatedAt    time.Time
 }
