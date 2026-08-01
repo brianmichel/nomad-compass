@@ -6,14 +6,37 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/nomad/api"
 
+	"github.com/brianmichel/nomad-compass/internal/manifest"
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	repomodel "github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
+
+func TestManagedDeletionOrderDeletesDependentsFirst(t *testing.T) {
+	ordered, err := managedDeletionOrder([]storage.ManagedResource{
+		{Address: "volume.data", Kind: "volume"},
+		{Address: "job.app", Kind: "job", DependsOn: []string{"volume.data"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ordered) != 2 || ordered[0].Address != "job.app" || ordered[1].Address != "volume.data" {
+		t.Fatalf("order = %#v", ordered)
+	}
+	_, err = managedDeletionOrder([]storage.ManagedResource{
+		{Address: "a", DependsOn: []string{"b"}},
+		{Address: "b", DependsOn: []string{"a"}},
+	})
+	if err == nil {
+		t.Fatal("expected dependency cycle to fail closed")
+	}
+}
 
 func TestParseJob(t *testing.T) {
 	job, submission, err := parseJob(".nomad/job.nomad.hcl", []byte(`job "demo" { datacenters = ["dc1"] }`))
@@ -28,6 +51,315 @@ func TestParseJob(t *testing.T) {
 	}
 	if submission.Source == "" || submission.Format != "hcl2" {
 		t.Fatalf("unexpected submission: %#v", submission)
+	}
+}
+
+func TestNativeJobSourceUsesStableBundleAddress(t *testing.T) {
+	bundle, err := manifest.Parse([]byte(`bundle "demo" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+
+	var resource manifest.Resource
+	for _, candidate := range bundle.Resources {
+		if candidate.Address == "job.api" {
+			resource = candidate
+		}
+	}
+	source, err := manifest.NativeJobSource(resource)
+	if err != nil {
+		t.Fatalf("build native job source: %v", err)
+	}
+	job, _, err := parseJob(resource.Address, source)
+	if err != nil {
+		t.Fatalf("parse embedded job: %v", err)
+	}
+	if job.Name == nil || *job.Name != "api" {
+		t.Fatalf("unexpected embedded job: %#v", job)
+	}
+}
+
+func TestEnsureBundleAppliesResourcesInDependencyOrder(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "bundle.sqlite"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	fileStore := storage.NewRepoFileStore(db)
+	managedStore := storage.NewManagedResourceStore(db)
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "bundle",
+		RepoURL: "https://example.com/bundle.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    delete = "protect"
+    name = "compass-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+  resource "acl_policy" "compass" {
+    delete = "protect"
+    rules {
+      namespace "default" {
+        capabilities = ["read-job", "submit-job"]
+      }
+    }
+  }
+  resource "job" "compass" {
+    depends_on = ["volume.data", "acl_policy.compass"]
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+
+	fake := &fakeNomad{}
+	manager := &Manager{
+		files:   fileStore,
+		managed: managedStore,
+		nomad:   fake,
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{
+		CommitHash: "commit-1",
+		Bundle:     bundle,
+	}, true); err != nil {
+		t.Fatalf("ensure bundle: %v", err)
+	}
+
+	wantCalls := []string{"volume:compass-data", "policy:compass", "job:compass"}
+	if !reflect.DeepEqual(fake.resourceCalls, wantCalls) {
+		t.Fatalf("resource calls = %v, want %v", fake.resourceCalls, wantCalls)
+	}
+	tracked, err := managedStore.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list managed resources: %v", err)
+	}
+	if len(tracked) != 3 {
+		t.Fatalf("expected all bundle resources tracked, got %d", len(tracked))
+	}
+
+	remainingBundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "compass" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse remaining bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{
+		CommitHash: "commit-2",
+		Bundle:     remainingBundle,
+	}, true); err != nil {
+		t.Fatalf("ensure remaining bundle: %v", err)
+	}
+	if slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") || slices.Contains(fake.resourceCalls, "delete-policy:compass") {
+		t.Fatalf("protected resources were deleted: %v", fake.resourceCalls)
+	}
+}
+
+func newBundleManager(t *testing.T) (*Manager, *storage.Repository, *storage.ManagedResourceStore, *fakeNomad) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "bundle.sqlite"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+
+	repoStore := storage.NewRepoStore(db)
+	repoRecord, err := repoStore.Create(ctx, storage.RepositoryInput{
+		Name:    "bundle",
+		RepoURL: "https://example.com/bundle.git",
+		Branch:  "main",
+	})
+	if err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	fake := &fakeNomad{}
+	return &Manager{
+		files:   storage.NewRepoFileStore(db),
+		managed: storage.NewManagedResourceStore(db),
+		nomad:   fake,
+		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, repoRecord, storage.NewManagedResourceStore(db), fake
+}
+
+func TestBundleJobIdentitySurvivesBundlePathChange(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+
+	first, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse first bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: first}, true); err != nil {
+		t.Fatalf("ensure first bundle: %v", err)
+	}
+
+	second, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), ".nomad/compass.hcl")
+	if err != nil {
+		t.Fatalf("parse second bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-2", Bundle: second}, true); err != nil {
+		t.Fatalf("ensure second bundle: %v", err)
+	}
+
+	if fake.registerCalls != 1 {
+		t.Fatalf("expected stable bundle job to be planned without re-registering, got %d registrations", fake.registerCalls)
+	}
+	tracked, err := managed.ListByRepo(ctx, repoRecord.ID)
+	if err != nil {
+		t.Fatalf("list managed resources: %v", err)
+	}
+	if len(tracked) != 1 || tracked[0].Address != "job.api" {
+		t.Fatalf("unexpected managed bundle jobs: %#v", tracked)
+	}
+	if tracked[0].SourcePath != ".nomad/compass.hcl" {
+		t.Fatalf("expected source path to update without changing identity, got %q", tracked[0].SourcePath)
+	}
+}
+
+func TestBundleVolumeChangesRequireExplicitReplacement(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+
+	first, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "compass-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse first volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: first}, true); err != nil {
+		t.Fatalf("ensure first volume: %v", err)
+	}
+
+	changed, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "renamed-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse changed volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-2", Bundle: changed}, true); err == nil {
+		t.Fatal("expected protected volume change to fail")
+	}
+	if slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") {
+		t.Fatalf("protected volume was deleted: %v", fake.resourceCalls)
+	}
+
+	allowed, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    delete = "allow"
+    name = "renamed-data"
+    type = "host"
+    plugin_id = "mkdir"
+    capability {
+      access_mode = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse allowed volume: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-3", Bundle: allowed}, true); err != nil {
+		t.Fatalf("ensure explicitly replaceable volume: %v", err)
+	}
+	if !slices.Contains(fake.resourceCalls, "delete-volume:host-volume-id") {
+		t.Fatalf("expected explicit volume replacement, got %v", fake.resourceCalls)
+	}
+}
+
+func TestEnsureBundleValidatesBeforeApplying(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "compass-data"
+    type = "host"
+  }
+  resource "acl_policy" "invalid" {
+    description = "missing rules"
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, true); err == nil {
+		t.Fatal("expected invalid bundle validation to fail")
+	}
+	if len(fake.resourceCalls) != 0 {
+		t.Fatalf("expected no Nomad mutations before validation, got %v", fake.resourceCalls)
+	}
+}
+
+func TestBundleRejectsUnmanagedACLPolicyCollision(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, fake := newBundleManager(t)
+	fake.aclPolicy = &api.ACLPolicy{Name: "existing"}
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "acl_policy" "existing" {
+    rules {
+      namespace "default" { capabilities = ["read-job"] }
+    }
+  }
+}`), ".nomad/compass.bundle.hcl")
+	if err != nil {
+		t.Fatalf("parse bundle: %v", err)
+	}
+	if err := manager.ensureBundle(ctx, repoRecord, &repomodel.Snapshot{CommitHash: "commit-1", Bundle: bundle}, true); err == nil {
+		t.Fatal("expected unmanaged ACL policy collision to fail")
+	}
+	if slices.Contains(fake.resourceCalls, "policy:existing") {
+		t.Fatalf("unmanaged ACL policy was overwritten: %v", fake.resourceCalls)
 	}
 }
 
@@ -635,6 +967,9 @@ type fakeNomad struct {
 	planCalls        int
 	jobStatusErr     error
 	jobStatuses      map[string]*nomadclient.JobStatus
+	hostVolume       *api.HostVolume
+	aclPolicy        *api.ACLPolicy
+	resourceCalls    []string
 }
 
 func strPtr(s string) *string {
@@ -642,6 +977,7 @@ func strPtr(s string) *string {
 }
 
 func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api.JobSubmission) error {
+	f.resourceCalls = append(f.resourceCalls, "job:"+jobID(job))
 	f.lastJob = job
 	f.lastSubmission = submission
 	if id := jobID(job); id != "" {
@@ -688,6 +1024,61 @@ func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.Job
 		Status: "running",
 		Exists: true,
 	}, nil
+}
+
+func (f *fakeNomad) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (*api.HostVolume, error) {
+	f.resourceCalls = append(f.resourceCalls, "volume:"+volume.Name)
+	copy := *volume
+	if copy.ID == "" {
+		copy.ID = "host-volume-id"
+	}
+	f.hostVolume = &copy
+	return &copy, nil
+}
+
+func (f *fakeNomad) ObserveHostVolume(_ context.Context, id, _ string) (*api.HostVolume, error) {
+	if f.hostVolume == nil || f.hostVolume.ID != id {
+		return nil, nil
+	}
+	return f.hostVolume, nil
+}
+
+func (f *fakeNomad) DeleteHostVolume(_ context.Context, id, _ string, _ bool) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-volume:"+id)
+	f.hostVolume = nil
+	return nil
+}
+
+func (f *fakeNomad) ApplyCSIVolume(_ context.Context, volume *api.CSIVolume) (*api.CSIVolume, error) {
+	return volume, nil
+}
+
+func (f *fakeNomad) ObserveCSIVolume(context.Context, string, string) (*api.CSIVolume, error) {
+	return nil, nil
+}
+
+func (f *fakeNomad) DeleteCSIVolume(context.Context, string, string, bool) error {
+	return nil
+}
+
+func (f *fakeNomad) ApplyACLPolicy(_ context.Context, policy *api.ACLPolicy) error {
+	f.resourceCalls = append(f.resourceCalls, "policy:"+policy.Name)
+	copy := *policy
+	f.aclPolicy = &copy
+	return nil
+}
+
+func (f *fakeNomad) ObserveACLPolicy(_ context.Context, name string) (*api.ACLPolicy, error) {
+	if f.aclPolicy == nil || f.aclPolicy.Name != name {
+		return nil, nil
+	}
+	return f.aclPolicy, nil
+}
+
+func (f *fakeNomad) DeleteACLPolicy(_ context.Context, name string) error {
+	f.resourceCalls = append(f.resourceCalls, "delete-policy:"+name)
+	f.aclPolicy = nil
+	return nil
 }
 
 func (f *fakeNomad) PlanJob(_ context.Context, job *api.Job) (*api.JobPlanResponse, error) {

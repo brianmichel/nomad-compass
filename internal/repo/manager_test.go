@@ -86,6 +86,62 @@ func TestManagerSync(t *testing.T) {
 	}
 }
 
+func TestManagerSyncEmbeddedBundle(t *testing.T) {
+	tmp := t.TempDir()
+	remotePath := filepath.Join(tmp, "remote-bundle")
+	bundleDir := filepath.Join(remotePath, ".nomad")
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		t.Fatalf("mkdir bundle dir: %v", err)
+	}
+
+	gitRepo, err := gogit.PlainInit(remotePath, false)
+	if err != nil {
+		t.Fatalf("init repo: %v", err)
+	}
+	wt, err := gitRepo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+
+	bundlePath := filepath.Join(bundleDir, "compass.bundle.hcl")
+	if err := os.WriteFile(bundlePath, []byte(`bundle "demo" {
+  resource "job" "api" {
+    datacenters = ["dc1"]
+  }
+}`), 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	if _, err := wt.Add(".nomad/compass.bundle.hcl"); err != nil {
+		t.Fatalf("add bundle: %v", err)
+	}
+	if _, err := wt.Commit("add bundle", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "Tester", Email: "tester@example.com", When: time.Now()},
+	}); err != nil {
+		t.Fatalf("commit bundle: %v", err)
+	}
+
+	manager := NewManager(filepath.Join(tmp, "clones"))
+	snapshot, err := manager.Sync(context.Background(), storage.Repository{
+		ID:      3,
+		Name:    "bundle",
+		RepoURL: remotePath,
+		Branch:  "master",
+		JobPath: ".nomad",
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("sync bundle: %v", err)
+	}
+	if snapshot.Bundle == nil {
+		t.Fatal("expected embedded bundle")
+	}
+	if snapshot.Bundle.Name != "demo" || len(snapshot.Bundle.Resources) != 1 {
+		t.Fatalf("unexpected bundle: %#v", snapshot.Bundle)
+	}
+	if len(snapshot.JobFiles) != 0 {
+		t.Fatalf("expected no legacy job files, got %d", len(snapshot.JobFiles))
+	}
+}
+
 func TestManagerSyncCustomJobPath(t *testing.T) {
 	tmp := t.TempDir()
 	remotePath := filepath.Join(tmp, "remote-custom")

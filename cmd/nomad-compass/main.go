@@ -51,6 +51,7 @@ func main() {
 	credStore := storage.NewCredentialStore(db, encryptor)
 	repoStore := storage.NewRepoStore(db)
 	fileStore := storage.NewRepoFileStore(db)
+	managedStore := storage.NewManagedResourceStore(db)
 
 	gitManager := repo.NewManager(cfg.Repo.BaseDir)
 
@@ -60,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	reconciler := reconcile.New(repoStore, fileStore, credStore, gitManager, nomad, cfg.Repo.PollInterval, logger)
+	reconciler := reconcile.New(repoStore, fileStore, managedStore, credStore, gitManager, nomad, cfg.Repo.PollInterval, logger)
 
 	srv := server.New(repoStore, fileStore, credStore, reconciler, nomad, cfg.Nomad.Address, logger)
 	httpServer := &http.Server{Addr: cfg.Server.Address, Handler: srv.Handler()}

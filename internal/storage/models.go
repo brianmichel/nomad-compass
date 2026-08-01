@@ -47,4 +47,25 @@ type RepoFile struct {
 	LastCommit sql.NullString
 	UpdatedAt  time.Time
 	JobID      sql.NullString
+	DeleteMode sql.NullString
+}
+
+// ManagedResource tracks a non-file-backed or embedded resource in a bundle.
+type ManagedResource struct {
+	ID           int64
+	RepoID       int64
+	Address      string
+	Kind         string
+	SourcePath   string
+	NomadID      sql.NullString
+	Namespace    sql.NullString
+	ContentHash  sql.NullString
+	ManifestHash sql.NullString
+	LastCommit   sql.NullString
+	Status       string
+	LastError    sql.NullString
+	DeleteMode   string
+	Subtype      sql.NullString
+	DependsOn    []string
+	UpdatedAt    time.Time
 }
