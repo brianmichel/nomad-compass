@@ -25,6 +25,7 @@ type ResourceLookup interface {
 
 type ResourceClient interface {
 	Client
+	ResourceLookup
 	ApplyHostVolume(ctx context.Context, volume *api.HostVolume) (*api.HostVolume, error)
 	ObserveHostVolume(ctx context.Context, id, namespace string) (*api.HostVolume, error)
 	DeleteHostVolume(ctx context.Context, id, namespace string, force bool) error

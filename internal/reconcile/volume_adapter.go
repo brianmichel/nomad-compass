@@ -2,7 +2,6 @@ package reconcile
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -69,11 +68,7 @@ func (volumeAdapter) Apply(ctx context.Context, client nomadclient.ResourceClien
 		return managedResourceResult{}, err
 	}
 	if tracked.Address == "" {
-		lookup, ok := client.(nomadclient.ResourceLookup)
-		if !ok {
-			return managedResourceResult{}, errors.New("resource client must support ownership lookup before applying a volume")
-		}
-		exists, err := (volumeAdapter{}).Lookup(ctx, lookup, resource)
+		exists, err := (volumeAdapter{}).Lookup(ctx, client, resource)
 		if err != nil {
 			return managedResourceResult{}, err
 		}

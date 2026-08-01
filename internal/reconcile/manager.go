@@ -315,36 +315,15 @@ func (m *Manager) adoptBundleResource(ctx context.Context, repoID int64, snapsho
 		}
 		nomadID, namespace, subtype = result.NomadID, result.Namespace, result.Subtype
 	}
-	if err := m.claimNomadIdentity(ctx, repoID, resource, nomadID, namespace); err != nil {
-		return err
-	}
-	return m.upsertManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, manifest.SpecHash(resource), manifest.ManifestHash(resource), "applied", "", subtype)
+	return m.upsertExclusiveManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, manifest.SpecHash(resource), manifest.ManifestHash(resource), "applied", "", subtype)
 }
 
-func (m *Manager) claimNomadIdentity(ctx context.Context, repoID int64, resource manifest.Resource, nomadID, namespace string) error {
-	if nomadID == "" || m.managed == nil {
-		return nil
-	}
-	owners, err := m.managed.ListByNomadID(ctx, resource.Kind, nomadID)
+func (m *Manager) managedResourceInput(repoID int64, snapshot *repo.Snapshot, resource manifest.Resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype string) (storage.ManagedResourceInput, error) {
+	dependsOn, err := json.Marshal(resource.DependsOn)
 	if err != nil {
-		return err
+		return storage.ManagedResourceInput{}, err
 	}
-	for _, owner := range owners {
-		if owner.RepoID == repoID && owner.Address == resource.Address {
-			continue
-		}
-		if effectiveNomadNamespace(owner.Namespace.String) == effectiveNomadNamespace(namespace) {
-			return fmt.Errorf("Nomad identity %q for %s is already owned by %s in repository %d", nomadID, resource.Kind, owner.Address, owner.RepoID)
-		}
-	}
-	return nil
-}
-
-func effectiveNomadNamespace(namespace string) string {
-	if namespace == "" {
-		return "default"
-	}
-	return namespace
+	return storage.ManagedResourceInput{RepoID: repoID, Address: resource.Address, Kind: resource.Kind, SourcePath: resource.SourcePath, NomadID: nomadID, Namespace: namespace, ContentHash: specHash, ManifestHash: manifestHash, LastCommit: snapshot.CommitHash, Status: status, LastError: lastError, DeleteMode: string(resource.DeleteMode), Subtype: subtype, DependsOn: string(dependsOn)}, nil
 }
 
 // ListProtectedResources returns resources that Compass retained after they
@@ -674,26 +653,19 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 }
 
 func (m *Manager) upsertManagedResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, resource manifest.Resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype string) error {
-	dependsOn, err := json.Marshal(resource.DependsOn)
+	input, err := m.managedResourceInput(repoID, snapshot, resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype)
 	if err != nil {
 		return err
 	}
-	return m.managed.Upsert(ctx, storage.ManagedResourceInput{
-		RepoID:       repoID,
-		Address:      resource.Address,
-		Kind:         resource.Kind,
-		SourcePath:   resource.SourcePath,
-		NomadID:      nomadID,
-		Namespace:    namespace,
-		ContentHash:  specHash,
-		ManifestHash: manifestHash,
-		LastCommit:   snapshot.CommitHash,
-		Status:       status,
-		LastError:    lastError,
-		DeleteMode:   string(resource.DeleteMode),
-		Subtype:      subtype,
-		DependsOn:    string(dependsOn),
-	})
+	return m.managed.Upsert(ctx, input)
+}
+
+func (m *Manager) upsertExclusiveManagedResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, resource manifest.Resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype string) error {
+	input, err := m.managedResourceInput(repoID, snapshot, resource, nomadID, namespace, specHash, manifestHash, status, lastError, subtype)
+	if err != nil {
+		return err
+	}
+	return m.managed.UpsertExclusive(ctx, input)
 }
 
 // managedDeletionOrder returns dependents before their dependencies. The
