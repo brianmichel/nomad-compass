@@ -11,7 +11,19 @@ func (a *API) ApplyVariable(_ context.Context, variable *api.Variable) (*api.Var
 	if variable == nil || variable.Path == "" {
 		return nil, errors.New("variable and path are required")
 	}
+	if variable.ModifyIndex > 0 {
+		result, _, err := a.client.Variables().CheckedUpdate(variable, nil)
+		return result, err
+	}
 	result, _, err := a.client.Variables().Update(variable, nil)
+	return result, err
+}
+
+func (a *API) CreateVariable(_ context.Context, variable *api.Variable) (*api.Variable, error) {
+	if variable == nil || variable.Path == "" {
+		return nil, errors.New("variable and path are required")
+	}
+	result, _, err := a.client.Variables().CheckedCreate(variable, nil)
 	return result, err
 }
 

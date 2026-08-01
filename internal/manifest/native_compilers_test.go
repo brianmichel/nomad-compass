@@ -23,6 +23,16 @@ node_pool_config {
   default = "general"
   allowed = ["general", "gpu"]
   denied = ["legacy"]
+}
+
+vault {
+  default = "vault-prod"
+  allowed = ["vault-prod"]
+}
+
+consul {
+  default = "consul-prod"
+  denied = ["consul-legacy"]
 }`)
 	namespace, err := CompileNamespace(resource)
 	if err != nil {
@@ -33,6 +43,9 @@ node_pool_config {
 	}
 	if namespace.Capabilities == nil || len(namespace.Capabilities.EnabledTaskDrivers) != 1 || namespace.NodePoolConfiguration == nil || namespace.NodePoolConfiguration.Default != "general" {
 		t.Fatalf("nested namespace configuration was not decoded: %#v", namespace)
+	}
+	if namespace.VaultConfiguration == nil || namespace.VaultConfiguration.Default != "vault-prod" || namespace.ConsulConfiguration == nil || namespace.ConsulConfiguration.Denied[0] != "consul-legacy" {
+		t.Fatalf("vault/consul namespace configuration was not decoded: %#v", namespace)
 	}
 }
 

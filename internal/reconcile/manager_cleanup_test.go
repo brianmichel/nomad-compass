@@ -12,6 +12,48 @@ import (
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
 
+func TestAdoptionRejectsNomadIdentityOwnedByAnotherRepository(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, fake := newBundleManager(t)
+	bundle, err := manifest.Parse([]byte(`bundle "compass" {
+  resource "volume" "data" {
+    name = "data"
+    type = "host"
+    plugin_id = "mkdir"
+  }
+}`), "compass.bundle.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: repoRecord.ID + 1, Address: "volume.other", Kind: "volume", NomadID: "host-volume-id", Namespace: "default", Status: "applied", DeleteMode: string(manifest.DeleteModeAllow), Subtype: "host"}); err != nil {
+		t.Fatal(err)
+	}
+	fake.hostVolume = &api.HostVolume{ID: "host-volume-id", Name: "data", PluginID: "mkdir"}
+	if err := manager.adoptBundleResource(ctx, repoRecord.ID, &repomodel.Snapshot{CommitHash: "commit", Bundle: bundle}, "volume.data"); err == nil {
+		t.Fatal("expected adoption ownership collision")
+	}
+}
+
+func TestRepositoryModeSwitchesFailClosedBeforeMutation(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, managed, _ := newBundleManager(t)
+	if err := manager.files.Upsert(ctx, repoRecord.ID, "job.nomad", "commit", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.validateRepositoryMode(ctx, repoRecord.ID, true); err == nil {
+		t.Fatal("expected legacy-to-bundle transition to be rejected")
+	}
+	if err := manager.files.DeleteByRepo(ctx, repoRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: repoRecord.ID, Address: "namespace.apps", Kind: "namespace", Status: "applied", DeleteMode: string(manifest.DeleteModeProtect)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.validateRepositoryMode(ctx, repoRecord.ID, false); err == nil {
+		t.Fatal("expected bundle-to-legacy transition to be rejected")
+	}
+}
+
 func TestDeleteProtectedResourcePerformsExplicitNomadCleanup(t *testing.T) {
 	ctx := context.Background()
 	manager, repoRecord, managed, fake := newBundleManager(t)
@@ -62,8 +104,22 @@ func TestDeleteRepositoryRequiresProtectedResourcesToBeResolved(t *testing.T) {
 	if err := managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: repoRecord.ID, Address: "volume.data", Kind: "volume", Status: "protected", DeleteMode: string(manifest.DeleteModeProtect)}); err != nil {
 		t.Fatal(err)
 	}
+	if protected, err := manager.ListProtectedResources(ctx, repoRecord.ID); err != nil || len(protected) != 1 {
+		t.Fatalf("actionable protected resources = %#v, %v", protected, err)
+	}
 	if err := manager.DeleteRepository(ctx, repoRecord.ID, true); err == nil {
 		t.Fatal("expected protected-resource deletion guard")
+	}
+
+	manager, repoRecord, managed, _ = newBundleManager(t)
+	if err := managed.Upsert(ctx, storage.ManagedResourceInput{RepoID: repoRecord.ID, Address: "volume.active", Kind: "volume", Status: "applied", DeleteMode: string(manifest.DeleteModeProtect)}); err != nil {
+		t.Fatal(err)
+	}
+	if protected, err := manager.ListProtectedResources(ctx, repoRecord.ID); err != nil || len(protected) != 0 {
+		t.Fatalf("active resource incorrectly exposed as orphan: %#v, %v", protected, err)
+	}
+	if err := manager.DeleteRepository(ctx, repoRecord.ID, true); err == nil {
+		t.Fatal("expected active protected resource deletion guard")
 	}
 }
 

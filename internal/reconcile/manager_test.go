@@ -1325,6 +1325,13 @@ func (f *fakeNomad) ApplyVariable(_ context.Context, variable *api.Variable) (*a
 	return &copy, nil
 }
 
+func (f *fakeNomad) CreateVariable(_ context.Context, variable *api.Variable) (*api.Variable, error) {
+	f.resourceCalls = append(f.resourceCalls, "create-variable:"+variable.Path)
+	copy := *variable
+	f.variable = &copy
+	return &copy, nil
+}
+
 func (f *fakeNomad) ObserveVariable(_ context.Context, _, path string) (*api.Variable, error) {
 	if f.variable == nil || f.variable.Path != path {
 		return nil, nil

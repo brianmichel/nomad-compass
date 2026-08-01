@@ -209,6 +209,35 @@ func TestNewRejectsInvalidNomadAddress(t *testing.T) {
 	}
 }
 
+func TestVariableWritesUseCheckedCreateAndUpdate(t *testing.T) {
+	client := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/var/config" || r.Method != http.MethodPut {
+			t.Fatalf("unexpected variable request: %s %s", r.Method, r.URL.String())
+		}
+		if r.URL.Query().Get("cas") != "0" {
+			t.Fatalf("create CAS = %q, want 0", r.URL.Query().Get("cas"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Path":"config","ModifyIndex":1}`))
+	}))
+	created, err := client.CreateVariable(context.Background(), &api.Variable{Path: "config", Items: map[string]string{"a": "b"}})
+	if err != nil || created == nil || created.Path != "config" {
+		t.Fatalf("checked create = %#v, %v", created, err)
+	}
+
+	updateClient := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cas") != "7" {
+			t.Fatalf("update CAS = %q, want 7", r.URL.Query().Get("cas"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Path":"config","ModifyIndex":8}`))
+	}))
+	updated, err := updateClient.ApplyVariable(context.Background(), &api.Variable{Path: "config", ModifyIndex: 7, Items: map[string]string{"a": "c"}})
+	if err != nil || updated == nil || updated.ModifyIndex != 8 {
+		t.Fatalf("checked update = %#v, %v", updated, err)
+	}
+}
+
 func TestResourceErrorResponsesAreReturned(t *testing.T) {
 	client := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/brianmichel/nomad-compass/internal/manifest"
+	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	bundleplan "github.com/brianmichel/nomad-compass/internal/plan"
 )
 
@@ -803,19 +804,45 @@ type statusResponse struct {
 }
 
 type repositoryResponse struct {
-	ID         int64           `json:"id"`
-	Name       string          `json:"name"`
-	RepoURL    string          `json:"repo_url"`
-	Branch     string          `json:"branch"`
-	JobPath    string          `json:"job_path"`
-	Jobs       []repositoryJob `json:"jobs"`
-	LastCommit *string         `json:"last_commit,omitempty"`
+	ID               int64           `json:"id"`
+	Name             string          `json:"name"`
+	RepoURL          string          `json:"repo_url"`
+	Branch           string          `json:"branch"`
+	JobPath          string          `json:"job_path"`
+	CredentialID     *int64          `json:"credential_id,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	LastCommit       *string         `json:"last_commit,omitempty"`
+	LastCommitAuthor *string         `json:"last_commit_author,omitempty"`
+	LastCommitTitle  *string         `json:"last_commit_title,omitempty"`
+	LastPolledAt     *time.Time      `json:"last_polled_at,omitempty"`
+	Jobs             []repositoryJob `json:"jobs"`
 }
 
 type repositoryJob struct {
-	Path   string `json:"path"`
-	JobID  string `json:"job_id,omitempty"`
-	Status string `json:"status,omitempty"`
+	Path                 string                         `json:"path"`
+	JobID                string                         `json:"job_id,omitempty"`
+	JobName              string                         `json:"job_name,omitempty"`
+	Namespace            string                         `json:"namespace,omitempty"`
+	JobType              string                         `json:"job_type,omitempty"`
+	LastCommit           *string                        `json:"last_commit,omitempty"`
+	UpdatedAt            time.Time                      `json:"updated_at"`
+	Status               string                         `json:"status,omitempty"`
+	StatusDescription    string                         `json:"status_description,omitempty"`
+	StatusError          string                         `json:"status_error,omitempty"`
+	NomadStatus          string                         `json:"nomad_status,omitempty"`
+	DesiredAllocs        int                            `json:"desired_allocations,omitempty"`
+	RunningAllocs        int                            `json:"running_allocations,omitempty"`
+	StartingAllocs       int                            `json:"starting_allocations,omitempty"`
+	QueuedAllocs         int                            `json:"queued_allocations,omitempty"`
+	FailedAllocs         int                            `json:"failed_allocations,omitempty"`
+	LostAllocs           int                            `json:"lost_allocations,omitempty"`
+	UnknownAllocs        int                            `json:"unknown_allocations,omitempty"`
+	LatestDeploymentID   string                         `json:"latest_deployment_id,omitempty"`
+	LatestAllocationID   string                         `json:"latest_allocation_id,omitempty"`
+	LatestAllocationName string                         `json:"latest_allocation_name,omitempty"`
+	JobURL               string                         `json:"job_url,omitempty"`
+	Allocations          []nomadclient.AllocationStatus `json:"allocations,omitempty"`
 }
 
 type credentialResponse struct {

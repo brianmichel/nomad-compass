@@ -97,13 +97,17 @@ func TestManagedResourceStoreDeletesByAddressAndRepository(t *testing.T) {
 	db, ctx := testStorageDB(t)
 	store := NewManagedResourceStore(db)
 	for _, input := range []ManagedResourceInput{
-		{RepoID: 1, Address: "job.api", Kind: "job", Status: "applied", DeleteMode: "allow"},
-		{RepoID: 1, Address: "volume.data", Kind: "volume", Status: "protected", DeleteMode: "protect"},
+		{RepoID: 1, Address: "job.api", Kind: "job", NomadID: "job-api", Status: "applied", DeleteMode: "allow"},
+		{RepoID: 1, Address: "volume.data", Kind: "volume", NomadID: "volume-data", Status: "protected", DeleteMode: "protect"},
 		{RepoID: 2, Address: "job.other", Kind: "job", Status: "applied", DeleteMode: "allow"},
 	} {
 		if err := store.Upsert(ctx, input); err != nil {
 			t.Fatal(err)
 		}
+	}
+	owners, err := store.ListByNomadID(ctx, "volume", "volume-data")
+	if err != nil || len(owners) != 1 || owners[0].Address != "volume.data" {
+		t.Fatalf("identity owners = %#v, err = %v", owners, err)
 	}
 	if err := store.Delete(ctx, 1, "job.api"); err != nil {
 		t.Fatal(err)

@@ -43,6 +43,7 @@ type ResourceClient interface {
 	ApplyQuota(ctx context.Context, quota *api.QuotaSpec) error
 	DeleteQuota(ctx context.Context, name string) error
 	ApplyVariable(ctx context.Context, variable *api.Variable) (*api.Variable, error)
+	CreateVariable(ctx context.Context, variable *api.Variable) (*api.Variable, error)
 	DeleteVariable(ctx context.Context, namespace, path string) error
 	ApplySentinelPolicy(ctx context.Context, policy *api.SentinelPolicy) error
 	DeleteSentinelPolicy(ctx context.Context, name string) error

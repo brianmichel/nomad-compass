@@ -81,6 +81,26 @@ func (s *ManagedResourceStore) ListByRepo(ctx context.Context, repoID int64) ([]
 	return resources, rows.Err()
 }
 
+// ListByNomadID returns ownership records for a Nomad identity across repositories.
+func (s *ManagedResourceStore) ListByNomadID(ctx context.Context, kind, nomadID string) ([]ManagedResource, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, address, kind, source_path, nomad_id, namespace, content_hash, manifest_hash, last_commit, status, last_error, delete_mode, subtype, depends_on, updated_at FROM managed_resources WHERE kind = ? AND nomad_id = ? ORDER BY repo_id, address`, kind, nomadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var resources []ManagedResource
+	for rows.Next() {
+		var resource ManagedResource
+		var sourcePath sql.NullString
+		if err := rows.Scan(&resource.ID, &resource.RepoID, &resource.Address, &resource.Kind, &sourcePath, &resource.NomadID, &resource.Namespace, &resource.ContentHash, &resource.ManifestHash, &resource.LastCommit, &resource.Status, &resource.LastError, &resource.DeleteMode, &resource.Subtype, &resource.DependsOn, &resource.UpdatedAt); err != nil {
+			return nil, err
+		}
+		resource.SourcePath = sourcePath.String
+		resources = append(resources, resource)
+	}
+	return resources, rows.Err()
+}
+
 // Delete removes one tracked resource record.
 func (s *ManagedResourceStore) Delete(ctx context.Context, repoID int64, address string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM managed_resources WHERE repo_id = ? AND address = ?`, repoID, address)

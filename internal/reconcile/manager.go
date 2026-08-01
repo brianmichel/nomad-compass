@@ -94,6 +94,9 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	}
 
 	commitChanged := !repoRecord.LastCommit.Valid || repoRecord.LastCommit.String != snapshot.CommitHash
+	if err := m.validateRepositoryMode(ctx, repoRecord.ID, snapshot.Bundle != nil); err != nil {
+		return err
+	}
 	if snapshot.Bundle != nil {
 		if err := m.ensureBundle(ctx, repoRecord, snapshot, commitChanged); err != nil {
 			return err
@@ -114,6 +117,33 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 		m.logger.Info("repo state enforced", "repo", repoRecord.Name, "commit", snapshot.CommitHash)
 	}
 
+	return nil
+}
+
+func (m *Manager) validateRepositoryMode(ctx context.Context, repoID int64, bundleMode bool) error {
+	if bundleMode {
+		if m.files == nil {
+			return nil
+		}
+		files, err := m.files.ListByRepo(ctx, repoID)
+		if err != nil {
+			return err
+		}
+		if len(files) > 0 {
+			return fmt.Errorf("repository %d cannot switch from legacy jobs to a Compass bundle while legacy job ownership exists", repoID)
+		}
+		return nil
+	}
+	if m.managed == nil {
+		return nil
+	}
+	resources, err := m.managed.ListByRepo(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if len(resources) > 0 {
+		return fmt.Errorf("repository %d cannot switch from a Compass bundle to legacy jobs while managed resource ownership exists", repoID)
+	}
 	return nil
 }
 
@@ -285,7 +315,36 @@ func (m *Manager) adoptBundleResource(ctx context.Context, repoID int64, snapsho
 		}
 		nomadID, namespace, subtype = result.NomadID, result.Namespace, result.Subtype
 	}
+	if err := m.claimNomadIdentity(ctx, repoID, resource, nomadID, namespace); err != nil {
+		return err
+	}
 	return m.upsertManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, manifest.SpecHash(resource), manifest.ManifestHash(resource), "applied", "", subtype)
+}
+
+func (m *Manager) claimNomadIdentity(ctx context.Context, repoID int64, resource manifest.Resource, nomadID, namespace string) error {
+	if nomadID == "" || m.managed == nil {
+		return nil
+	}
+	owners, err := m.managed.ListByNomadID(ctx, resource.Kind, nomadID)
+	if err != nil {
+		return err
+	}
+	for _, owner := range owners {
+		if owner.RepoID == repoID && owner.Address == resource.Address {
+			continue
+		}
+		if effectiveNomadNamespace(owner.Namespace.String) == effectiveNomadNamespace(namespace) {
+			return fmt.Errorf("Nomad identity %q for %s is already owned by %s in repository %d", nomadID, resource.Kind, owner.Address, owner.RepoID)
+		}
+	}
+	return nil
+}
+
+func effectiveNomadNamespace(namespace string) string {
+	if namespace == "" {
+		return "default"
+	}
+	return namespace
 }
 
 // ListProtectedResources returns resources that Compass retained after they
@@ -300,7 +359,7 @@ func (m *Manager) ListProtectedResources(ctx context.Context, repoID int64) ([]s
 	}
 	protected := make([]storage.ManagedResource, 0)
 	for _, resource := range resources {
-		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+		if resource.DeleteMode == string(manifest.DeleteModeProtect) && resource.Status == "protected" {
 			protected = append(protected, resource)
 		}
 	}
@@ -368,10 +427,20 @@ func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule
 	if repoRecord == nil {
 		return errors.New("repository not found")
 	}
-	if protected, err := m.ListProtectedResources(ctx, repoID); err != nil {
-		return err
-	} else if len(protected) > 0 {
-		return fmt.Errorf("repository has %d protected resource(s); use repo orphan list, forget, or delete first", len(protected))
+	if m.managed != nil {
+		resources, err := m.managed.ListByRepo(ctx, repoID)
+		if err != nil {
+			return err
+		}
+		protected := 0
+		for _, resource := range resources {
+			if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+				protected++
+			}
+		}
+		if protected > 0 {
+			return fmt.Errorf("repository has %d protected resource(s); remove them from the bundle and reconcile before using repo orphan actions", protected)
+		}
 	}
 
 	if unschedule {

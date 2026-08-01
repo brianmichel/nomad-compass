@@ -81,6 +81,19 @@ func (variableAdapter) Apply(ctx context.Context, client nomadclient.ResourceCli
 		if actual != nil {
 			return managedResourceResult{}, fmt.Errorf("variable %q already exists but is not managed by this repository", desired.Path)
 		}
+		actual, err = client.CreateVariable(ctx, desired)
+		if err != nil {
+			return managedResourceResult{}, err
+		}
+		if actual == nil {
+			actual = desired
+		}
+		return managedResourceResult{NomadID: actual.Path, Namespace: actual.Namespace}, nil
+	}
+	if actual, err := client.ObserveVariable(ctx, desired.Namespace, desired.Path); err != nil {
+		return managedResourceResult{}, err
+	} else if actual != nil {
+		desired.ModifyIndex = actual.ModifyIndex
 	}
 	actual, err := client.ApplyVariable(ctx, desired)
 	if err != nil {
