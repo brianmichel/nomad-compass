@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/brianmichel/nomad-compass/internal/nomadclient"
+	"github.com/brianmichel/nomad-compass/internal/plan"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 	"github.com/brianmichel/nomad-compass/internal/web"
 )
@@ -39,6 +40,7 @@ type credentialStore interface {
 
 type reconcileManager interface {
 	ReconcileRepo(ctx context.Context, repoID int64) error
+	PlanRepo(ctx context.Context, repoID int64) (*plan.Report, error)
 	DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error
 	DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error
 }
@@ -85,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 		api.Get("/repos", s.handleListRepos)
 		api.Post("/repos", s.handleCreateRepo)
 		api.Post("/repos/{id}/reconcile", s.handleTriggerRepo)
+		api.Get("/repos/{id}/plan", s.handlePlanRepo)
 		api.Delete("/repos/{id}", s.handleDeleteRepo)
 
 		api.Get("/credentials", s.handleListCredentials)
@@ -158,6 +161,24 @@ func (s *Server) handleTriggerRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondStatus(w, http.StatusAccepted, nil)
+}
+
+func (s *Server) handlePlanRepo(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		respondStatus(w, http.StatusBadRequest, err)
+		return
+	}
+	result, err := s.reconciler.PlanRepo(r.Context(), id)
+	if err != nil {
+		if strings.Contains(err.Error(), "repository not found") {
+			respondStatus(w, http.StatusNotFound, err)
+		} else {
+			respondErr(w, err)
+		}
+		return
+	}
+	respondJSON(w, result)
 }
 
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
