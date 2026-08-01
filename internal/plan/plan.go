@@ -122,7 +122,15 @@ func CompareTracked(ctx context.Context, desired *manifest.Bundle, tracked []sto
 		seen[resource.Address] = struct{}{}
 		trackedResource, exists := trackedByAddress[resource.Address]
 		if !exists {
-			result.add(resourcePlan(resource, "create", "resource is not managed by Compass"))
+			observation, err := observe(ctx, resource, storage.ManagedResource{})
+			if err != nil {
+				return Report{}, fmt.Errorf("observe %s: %w", resource.Address, err)
+			}
+			if observation.Present {
+				result.add(resourcePlan(resource, "conflict", "an unmanaged live resource already owns the desired identity"))
+			} else {
+				result.add(resourcePlan(resource, "create", "resource is not managed by Compass"))
+			}
 			continue
 		}
 		observation, err := observe(ctx, resource, trackedResource)

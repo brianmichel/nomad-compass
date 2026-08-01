@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/nomad/api"
@@ -39,6 +40,7 @@ type Manager struct {
 	nomad    nomadclient.Client
 	interval time.Duration
 	logger   *slog.Logger
+	repoMu   sync.Mutex
 }
 
 // New constructs a reconciliation manager.
@@ -96,6 +98,8 @@ func (m *Manager) reconcileAll(ctx context.Context) error {
 }
 
 func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Repository) error {
+	m.repoMu.Lock()
+	defer m.repoMu.Unlock()
 	snapshot, err := m.syncRepo(ctx, repoRecord)
 	if err != nil {
 		// Partial failures should still record the poll event
@@ -154,6 +158,8 @@ func (m *Manager) syncRepo(ctx context.Context, repoRecord *storage.Repository) 
 // Git synchronization updates only the local checkout; this method does not
 // write Compass tracking state or mutate Nomad.
 func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Report, error) {
+	m.repoMu.Lock()
+	defer m.repoMu.Unlock()
 	repoRecord, err := m.repos.Get(ctx, repoID)
 	if err != nil {
 		return nil, err
@@ -182,13 +188,22 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 	if err != nil {
 		return nil, err
 	}
-	var resourceClient nomadclient.ResourceClient
-	if len(tracked) > 0 {
-		resourceClient, _ = m.nomad.(nomadclient.ResourceClient)
-	}
+	resourceClient, _ := m.nomad.(nomadclient.ResourceClient)
 	result, err := bundleplan.CompareTracked(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
 		if resource.Kind == "job" {
-			status, err := m.nomad.JobStatus(ctx, tracked.NomadID.String)
+			candidateID := tracked.NomadID.String
+			if candidateID == "" {
+				source, sourceErr := manifest.NativeJobSource(resource)
+				if sourceErr != nil {
+					return bundleplan.Observation{}, sourceErr
+				}
+				job, _, parseErr := parseJob(resource.SourcePath, source)
+				if parseErr != nil {
+					return bundleplan.Observation{}, parseErr
+				}
+				candidateID = jobID(job)
+			}
+			status, err := m.nomad.JobStatus(ctx, candidateID)
 			if err != nil || status == nil || !status.Exists {
 				return bundleplan.Observation{Present: status != nil && status.Exists}, err
 			}
@@ -200,6 +215,7 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 			if err != nil {
 				return bundleplan.Observation{}, err
 			}
+			annotateJob(job, repoRecord, repo.JobFile{Path: resource.Address, Content: source}, snapshot, false)
 			job.ID = &tracked.NomadID.String
 			jobPlan, err := m.nomad.PlanJob(ctx, job)
 			if err != nil {
@@ -211,6 +227,22 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 			return bundleplan.Observation{}, errors.New("Nomad client does not support bundle resources")
 		}
 		if resource.Kind == "volume" {
+			spec, compileErr := manifest.CompileVolume(resource)
+			if compileErr != nil {
+				return bundleplan.Observation{}, compileErr
+			}
+			if spec.Type == "csi" && spec.CSI != nil {
+				id := spec.CSI.ID
+				if id == "" {
+					id = resource.Name
+				}
+				volume, observeErr := resourceClient.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
+				if tracked.NomadID.Valid {
+					drifted, present, err := managedVolumeDrifted(ctx, resourceClient, resource, tracked)
+					return bundleplan.Observation{Present: present, Matches: present && !drifted}, err
+				}
+				return bundleplan.Observation{Present: volume != nil, Matches: false}, observeErr
+			}
 			drifted, present, err := managedVolumeDrifted(ctx, resourceClient, resource, tracked)
 			return bundleplan.Observation{Present: present, Matches: present && !drifted}, err
 		}

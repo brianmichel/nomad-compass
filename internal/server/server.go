@@ -171,7 +171,11 @@ func (s *Server) handlePlanRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.reconciler.PlanRepo(r.Context(), id)
 	if err != nil {
-		respondErr(w, err)
+		if strings.Contains(err.Error(), "repository not found") {
+			respondStatus(w, http.StatusNotFound, err)
+		} else {
+			respondErr(w, err)
+		}
 		return
 	}
 	respondJSON(w, result)

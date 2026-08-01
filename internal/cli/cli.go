@@ -516,7 +516,9 @@ func writeTextPlan(out io.Writer, plan PlanReport) error {
 		symbol := map[string]string{"create": "+", "update": "~", "delete": "-", "protected": "!", "unchanged": "="}[resource.Action]
 		line := fmt.Sprintf("%s %s", symbol, resource.Address)
 		if resource.Action == "protected" {
-			line += " deletion protected"
+			line += " deletion protected (" + resource.Reason + ")"
+		} else if resource.Action == "conflict" {
+			line += " " + resource.Reason
 		}
 		if _, err := fmt.Fprintln(out, line); err != nil {
 			return err
