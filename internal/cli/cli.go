@@ -585,6 +585,22 @@ func validateResources(ctx context.Context, resources []manifest.Resource) ([]Re
 			if _, err := manifest.CompileACLPolicy(resource); err != nil {
 				return nil, fmt.Errorf("validate bundle ACL policy %q: %w", resource.Address, err)
 			}
+		case "namespace":
+			if _, err := manifest.CompileNamespace(resource); err != nil {
+				return nil, fmt.Errorf("validate bundle namespace %q: %w", resource.Address, err)
+			}
+		case "quota":
+			if _, err := manifest.CompileQuota(resource); err != nil {
+				return nil, fmt.Errorf("validate bundle quota %q: %w", resource.Address, err)
+			}
+		case "variable":
+			if _, err := manifest.CompileVariable(resource); err != nil {
+				return nil, fmt.Errorf("validate bundle variable %q: %w", resource.Address, err)
+			}
+		case "sentinel_policy":
+			if _, err := manifest.CompileSentinelPolicy(resource); err != nil {
+				return nil, fmt.Errorf("validate bundle Sentinel policy %q: %w", resource.Address, err)
+			}
 		default:
 			return nil, fmt.Errorf("bundle resource %q uses kind %q, which the CLI cannot validate yet", resource.Address, resource.Kind)
 		}

@@ -74,6 +74,39 @@ func TestRunBundleValidateReadsStdinAndWritesText(t *testing.T) {
 	}
 }
 
+func TestRunBundleValidateSupportsExtendedResourceAdapters(t *testing.T) {
+	input := strings.NewReader(`bundle "extended" {
+  resource "namespace" "apps" {
+    description = "apps"
+  }
+  resource "quota" "apps" {
+    limit {
+      region = "global"
+      region_limit {
+        cpu = 1000
+      }
+    }
+  }
+  resource "variable" "apps/config" {
+    items = { environment = "test" }
+  }
+  resource "sentinel_policy" "safe" {
+    scope = "submit-job"
+    enforcement_level = "soft-mandatory"
+    policy = "main = rule { true }"
+  }
+}`)
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{"bundle", "validate", "--file", "-"}, input, &output, nil); err != nil {
+		t.Fatalf("validate extended bundle: %v", err)
+	}
+	for _, address := range []string{"namespace.apps", "quota.apps", "variable.apps/config", "sentinel_policy.safe"} {
+		if !strings.Contains(output.String(), address) {
+			t.Fatalf("expected %s in validation output: %s", address, output.String())
+		}
+	}
+}
+
 func TestRunBundleValidateRejectsInvalidResource(t *testing.T) {
 	input := strings.NewReader(`bundle "invalid" {
   resource "acl_policy" "missing-rules" {
