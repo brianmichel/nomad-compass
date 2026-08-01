@@ -10,6 +10,7 @@ bundle "platform" {
   }
 
   resource "variable" "apps/config" {
+    depends_on = ["namespace.apps"]
     namespace = "apps"
 
     items = {
@@ -19,6 +20,7 @@ bundle "platform" {
   }
 
   resource "volume" "app_data" {
+    depends_on = ["namespace.apps"]
     delete = "protect"
 
     name      = "platform-app-data"

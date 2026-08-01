@@ -146,7 +146,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.reconciler != nil {
+	if s.reconciler != nil && (req.InitialReconcile == nil || *req.InitialReconcile) {
 		go func(repoID int64) {
 			if err := s.reconciler.ReconcileRepo(context.Background(), repoID); err != nil {
 				if s.logger != nil {
@@ -382,11 +382,12 @@ type reconcileRequest struct {
 }
 
 type createRepoRequest struct {
-	Name         string `json:"name"`
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	JobPath      string `json:"job_path"`
-	CredentialID int64  `json:"credential_id"`
+	Name             string `json:"name"`
+	RepoURL          string `json:"repo_url"`
+	Branch           string `json:"branch"`
+	JobPath          string `json:"job_path"`
+	CredentialID     int64  `json:"credential_id"`
+	InitialReconcile *bool  `json:"initial_reconcile,omitempty"`
 }
 
 type createCredentialRequest struct {

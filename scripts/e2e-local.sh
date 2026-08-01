@@ -2,17 +2,23 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NOMAD_ADDR="http://127.0.0.1:4646"
-COMPASS_ADDR="http://127.0.0.1:18080"
+NOMAD_PORT="${COMPASS_E2E_NOMAD_PORT:-4646}"
+COMPASS_PORT="${COMPASS_E2E_COMPASS_PORT:-18080}"
+NOMAD_ADDR="http://127.0.0.1:${NOMAD_PORT}"
+COMPASS_ADDR="http://127.0.0.1:${COMPASS_PORT}"
 E2E_NAMESPACE="e2e"
 E2E_VOLUME_ID="compass-e2e-data"
 E2E_POLICY="e2e"
 E2E_JOB="e2e"
+E2E_VARIABLE_PATH=""
+E2E_TASK="verify"
 if [[ "${COMPASS_E2E_BUNDLE:-simple}" == "complex" ]]; then
   E2E_NAMESPACE="apps"
   E2E_VOLUME_ID="platform-app-data"
   E2E_POLICY="platform"
   E2E_JOB="api"
+  E2E_VARIABLE_PATH="apps/config"
+  E2E_TASK="server"
 fi
 WORK_ROOT="${COMPASS_E2E_WORK_ROOT:-$ROOT/.tmp}"
 mkdir -p "$WORK_ROOT"
@@ -33,6 +39,9 @@ cleanup() {
     wait "$COMPASS_PID" 2>/dev/null || true
   fi
   if [[ -n "$NOMAD_PID" ]]; then
+    NOMAD_ADDR="$NOMAD_ADDR" NOMAD_TOKEN="${NOMAD_TOKEN-}" nomad job stop -purge -namespace="$E2E_NAMESPACE" "$E2E_JOB" >/dev/null 2>&1 || true
+    sleep 2
+    for container in $(docker ps -aq --filter "label=com.hashicorp.nomad.job.name=$E2E_JOB"); do docker rm -f "$container" >/dev/null 2>&1 || true; done
     kill "$NOMAD_PID" 2>/dev/null || true
     wait "$NOMAD_PID" 2>/dev/null || true
   fi
@@ -235,7 +244,7 @@ git config user.name "Compass E2E"
 git add .
 git commit -m "initial bundle" >/dev/null
 
-export COMPASS_HTTP_ADDR="127.0.0.1:18080"
+export COMPASS_HTTP_ADDR="127.0.0.1:${COMPASS_PORT}"
 export COMPASS_DATABASE_PATH="$WORK/compass.sqlite"
 export COMPASS_REPO_BASE_DIR="$WORK/clones"
 if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then
@@ -261,9 +270,11 @@ for _ in $(seq 1 60); do
 done
 curl -fsS "$COMPASS_ADDR/api/health" >/dev/null 2>&1 || fail "Compass did not become ready"
 
+INITIAL_RECONCILE=true
+if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then INITIAL_RECONCILE=false; fi
 RESPONSE="$(curl -fsS -X POST "$COMPASS_ADDR/api/repos" \
   -H 'Content-Type: application/json' \
-  -d "$(python3 -c 'import json,sys; print(json.dumps({"name":"local-e2e","repo_url":sys.argv[1],"branch":"main","job_path":".nomad"}))' "$WORK/repo")")"
+  -d "$(python3 -c 'import json,sys; print(json.dumps({"name":"local-e2e","repo_url":sys.argv[1],"branch":"main","job_path":".nomad","initial_reconcile":sys.argv[2]=="true"}))' "$WORK/repo" "$INITIAL_RECONCILE")")"
 REPO_ID="$(printf '%s' "$RESPONSE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
 if [[ "${COMPASS_E2E_MANUAL_SYNC:-0}" == "1" ]]; then
@@ -290,10 +301,14 @@ for _ in $(seq 1 60); do
 done
 
 NOMAD_ADDR="$NOMAD_ADDR" nomad namespace status "$E2E_NAMESPACE" >/dev/null 2>&1 || fail "E2E namespace was not created"
-NOMAD_ADDR="$NOMAD_ADDR" nomad namespace status "$E2E_NAMESPACE" >/dev/null 2>&1 || fail "E2E namespace was not created"
 NOMAD_ADDR="$NOMAD_ADDR" nomad volume status -type=host -namespace="$E2E_NAMESPACE" "$E2E_VOLUME_ID" >/dev/null 2>&1 || fail "host volume was not created"
 NOMAD_ADDR="$NOMAD_ADDR" nomad acl policy info "$E2E_POLICY" >/dev/null 2>&1 || fail "ACL policy was not created"
 NOMAD_ADDR="$NOMAD_ADDR" nomad job status -namespace="$E2E_NAMESPACE" "$E2E_JOB" | grep "running" >/dev/null || fail "job did not reach running state"
+ALLOC_ID="$(NOMAD_ADDR="$NOMAD_ADDR" nomad job allocs -json -namespace="$E2E_NAMESPACE" "$E2E_JOB" | python3 -c 'import json,sys; allocs=json.load(sys.stdin); running=[a for a in allocs if a.get("ClientStatus")=="running"]; print(running[0]["ID"] if running else "")')"
+[[ -n "$ALLOC_ID" ]] || fail "job has no running allocation"
+NOMAD_ADDR="$NOMAD_ADDR" nomad alloc status -namespace="$E2E_NAMESPACE" "$ALLOC_ID" | grep "$E2E_TASK" >/dev/null || fail "expected task $E2E_TASK was not reported"
+NOMAD_ADDR="$NOMAD_ADDR" nomad alloc logs -namespace="$E2E_NAMESPACE" "$ALLOC_ID" "$E2E_TASK" 2>/dev/null | grep -E "bundle-e2e-ok|complex-bundle-ok|running" >/dev/null || fail "task $E2E_TASK did not produce its health marker"
+if [[ -n "$E2E_VARIABLE_PATH" ]]; then NOMAD_ADDR="$NOMAD_ADDR" nomad var get -namespace="$E2E_NAMESPACE" "$E2E_VARIABLE_PATH" | grep "production" >/dev/null || fail "complex variable was not created"; fi
 
 curl -fsS -X POST "$COMPASS_ADDR/api/repos/$REPO_ID/reconcile" >/dev/null
 sleep 2

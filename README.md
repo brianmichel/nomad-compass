@@ -231,6 +231,7 @@ go run ./cmd/nomad-compass --server http://127.0.0.1:18080 \
 
 go run ./cmd/nomad-compass --server http://127.0.0.1:18080 \
   repo reconcile --id 1
+```
 
 Vue component tests are not included yet. The backend carries the bulk of logic and has targeted unit coverage.
 
