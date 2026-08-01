@@ -189,7 +189,41 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		return nil, err
 	}
 	resourceClient, _ := m.nomad.(nomadclient.ResourceClient)
-	result, err := bundleplan.CompareTracked(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
+	var lookup bundleplan.Lookup
+	if resourceLookup, ok := m.nomad.(nomadclient.ResourceLookup); ok {
+		lookup = func(ctx context.Context, resource manifest.Resource) (bool, error) {
+			switch resource.Kind {
+			case "job":
+				status, err := m.nomad.JobStatus(ctx, resource.Name)
+				return status != nil && status.Exists, err
+			case "acl_policy":
+				policy, err := resourceLookup.ObserveACLPolicy(ctx, resource.Name)
+				return policy != nil, err
+			case "volume":
+				spec, err := manifest.CompileVolume(resource)
+				if err != nil {
+					return false, err
+				}
+				if spec.Type == "csi" && resourceClient != nil {
+					id := spec.CSI.ID
+					if id == "" {
+						id = resource.Name
+					}
+					volume, err := resourceClient.ObserveCSIVolume(ctx, id, effectiveNamespace(spec.CSI.Namespace))
+					return volume != nil, err
+				}
+				if spec.Type == "host" {
+					volume, err := resourceLookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
+					return volume != nil, err
+				}
+				volume, err := resourceLookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+				return volume != nil, err
+			default:
+				return false, nil
+			}
+		}
+	}
+	result, err := bundleplan.CompareTrackedWithLookup(ctx, snapshot.Bundle, tracked, func(ctx context.Context, resource manifest.Resource, tracked storage.ManagedResource) (bundleplan.Observation, error) {
 		if resource.Kind == "job" {
 			candidateID := tracked.NomadID.String
 			if candidateID == "" {
@@ -256,12 +290,149 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		}
 		matches := policy.Description == desiredPolicy.Description && strings.TrimSpace(policy.Rules) == strings.TrimSpace(desiredPolicy.Rules)
 		return bundleplan.Observation{Present: true, Matches: matches}, nil
-	})
+	}, lookup)
 	if err != nil {
 		return nil, err
 	}
 	result.Revision = snapshot.CommitHash
 	return &result, nil
+}
+
+// AdoptBundleResource records explicit ownership of an unmanaged resource
+// after verifying that the live Nomad object matches the desired bundle body.
+// Adoption never changes the Nomad object.
+func (m *Manager) AdoptBundleResource(ctx context.Context, repoID int64, address string) error {
+	repoRecord, err := m.repos.Get(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if repoRecord == nil {
+		return errors.New("repository not found")
+	}
+	snapshot, err := m.syncRepo(ctx, repoRecord)
+	if err != nil {
+		return err
+	}
+	return m.adoptBundleResource(ctx, repoID, snapshot, address)
+}
+
+func (m *Manager) adoptBundleResource(ctx context.Context, repoID int64, snapshot *repo.Snapshot, address string) error {
+	if snapshot == nil || snapshot.Bundle == nil {
+		return errors.New("repository does not contain a Compass bundle")
+	}
+	ordered, err := snapshot.Bundle.OrderedResources()
+	if err != nil {
+		return err
+	}
+	if err := validateBundleResources(ordered); err != nil {
+		return err
+	}
+	var resource manifest.Resource
+	found := false
+	for _, candidate := range ordered {
+		if candidate.Address == address {
+			resource = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("bundle resource %q not found", address)
+	}
+	if m.managed == nil {
+		return errors.New("managed resource store is required for adoption")
+	}
+	tracked, err := m.managedResources(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if _, exists := tracked[address]; exists {
+		return fmt.Errorf("resource %q is already managed by Compass", address)
+	}
+
+	var nomadID, namespace, subtype string
+	if resource.Kind == "job" {
+		status, err := m.nomad.JobStatus(ctx, resource.Name)
+		if err != nil {
+			return err
+		}
+		if status == nil || !status.Exists {
+			return fmt.Errorf("Nomad job %q does not exist", resource.Name)
+		}
+		source, err := manifest.NativeJobSource(resource)
+		if err != nil {
+			return err
+		}
+		job, _, err := parseJob(resource.SourcePath, source)
+		if err != nil {
+			return err
+		}
+		job.ID = &resource.Name
+		jobPlan, err := m.nomad.PlanJob(ctx, job)
+		if err != nil {
+			return err
+		}
+		if jobPlanHasChanges(jobPlan) {
+			return fmt.Errorf("Nomad job %q does not match desired bundle resource", resource.Name)
+		}
+		nomadID = resource.Name
+	} else {
+		lookup, ok := m.nomad.(nomadclient.ResourceLookup)
+		if !ok {
+			return errors.New("Nomad client does not support resource adoption lookups")
+		}
+		switch resource.Kind {
+		case "volume":
+			spec, err := manifest.CompileVolume(resource)
+			if err != nil {
+				return err
+			}
+			if spec.Type == "host" {
+				volume, err := lookup.FindHostVolume(ctx, spec.Host.Name, spec.Host.Namespace)
+				if err != nil {
+					return fmt.Errorf("find host volume %q: %w", resource.Name, err)
+				}
+				if volume == nil {
+					return fmt.Errorf("host volume %q not found", resource.Name)
+				}
+				if !hostVolumeEquivalent(spec.Host, volume) {
+					return fmt.Errorf("host volume %q does not match desired bundle resource", resource.Name)
+				}
+				nomadID, namespace, subtype = volume.ID, volume.Namespace, "host"
+			} else {
+				volume, err := lookup.FindCSIVolume(ctx, spec.CSI.Name, spec.CSI.Namespace)
+				if err != nil {
+					return fmt.Errorf("find CSI volume %q: %w", resource.Name, err)
+				}
+				if volume == nil {
+					return fmt.Errorf("CSI volume %q not found", resource.Name)
+				}
+				if !csiVolumeEquivalent(spec.CSI, volume) {
+					return fmt.Errorf("CSI volume %q does not match desired bundle resource", resource.Name)
+				}
+				nomadID, namespace, subtype = volume.ID, volume.Namespace, "csi"
+			}
+		case "acl_policy":
+			policy, err := lookup.ObserveACLPolicy(ctx, resource.Name)
+			if err != nil {
+				return fmt.Errorf("find ACL policy %q: %w", resource.Name, err)
+			}
+			if policy == nil {
+				return fmt.Errorf("ACL policy %q not found", resource.Name)
+			}
+			desired, err := manifest.CompileACLPolicy(resource)
+			if err != nil {
+				return err
+			}
+			if policy.Description != desired.Description || strings.TrimSpace(policy.Rules) != strings.TrimSpace(desired.Rules) {
+				return fmt.Errorf("ACL policy %q does not match desired bundle resource", resource.Name)
+			}
+			nomadID = resource.Name
+		default:
+			return fmt.Errorf("resource kind %q cannot be adopted", resource.Kind)
+		}
+	}
+	return m.upsertManagedResource(ctx, repoID, snapshot, resource, nomadID, namespace, manifest.SpecHash(resource), manifest.ManifestHash(resource), "applied", "", subtype)
 }
 
 func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, jobFile repo.JobFile, snapshot *repo.Snapshot, job *api.Job, submission *api.JobSubmission) (string, error) {
@@ -277,6 +448,77 @@ func (m *Manager) applyJob(ctx context.Context, repoRecord *storage.Repository, 
 	return jobID(job), nil
 }
 
+// ListProtectedResources returns resources that Compass retained after they
+// were removed from a bundle or otherwise require explicit lifecycle action.
+func (m *Manager) ListProtectedResources(ctx context.Context, repoID int64) ([]storage.ManagedResource, error) {
+	if m.managed == nil {
+		return nil, errors.New("managed resource store is required")
+	}
+	resources, err := m.managed.ListByRepo(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	protected := make([]storage.ManagedResource, 0)
+	for _, resource := range resources {
+		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
+			protected = append(protected, resource)
+		}
+	}
+	return protected, nil
+}
+
+// ForgetProtectedResource removes Compass ownership metadata without deleting
+// the Nomad resource. This is intentionally explicit because it creates an
+// unmanaged resource by design.
+func (m *Manager) ForgetProtectedResource(ctx context.Context, repoID int64, address string) error {
+	resource, err := m.protectedResource(ctx, repoID, address)
+	if err != nil {
+		return err
+	}
+	if resource.Status != "protected" {
+		return fmt.Errorf("resource %q is not a protected orphan", address)
+	}
+	return m.managed.Delete(ctx, repoID, address)
+}
+
+// DeleteProtectedResource removes a protected orphan from Nomad and Compass.
+func (m *Manager) DeleteProtectedResource(ctx context.Context, repoID int64, address string) error {
+	resource, err := m.protectedResource(ctx, repoID, address)
+	if err != nil {
+		return err
+	}
+	if resource.Status != "protected" {
+		return fmt.Errorf("resource %q is not a protected orphan", address)
+	}
+	if resource.Kind == "job" {
+		if err := m.nomad.DeregisterJob(ctx, resource.NomadID.String, true); err != nil {
+			return err
+		}
+	} else {
+		client, ok := m.nomad.(nomadclient.ResourceClient)
+		if !ok {
+			return errors.New("Nomad client does not support bundle resource cleanup")
+		}
+		if err := deleteManagedResource(ctx, client, resource); err != nil {
+			return err
+		}
+	}
+	return m.managed.Delete(ctx, repoID, address)
+}
+
+func (m *Manager) protectedResource(ctx context.Context, repoID int64, address string) (storage.ManagedResource, error) {
+	resources, err := m.ListProtectedResources(ctx, repoID)
+	if err != nil {
+		return storage.ManagedResource{}, err
+	}
+	for _, resource := range resources {
+		if resource.Address == address {
+			return resource, nil
+		}
+	}
+	return storage.ManagedResource{}, fmt.Errorf("protected resource %q not found", address)
+}
+
 // DeleteRepository removes repository metadata and optionally unschedules jobs.
 func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error {
 	repoRecord, err := m.repos.Get(ctx, repoID)
@@ -285,6 +527,11 @@ func (m *Manager) DeleteRepository(ctx context.Context, repoID int64, unschedule
 	}
 	if repoRecord == nil {
 		return errors.New("repository not found")
+	}
+	if protected, err := m.ListProtectedResources(ctx, repoID); err != nil {
+		return err
+	} else if len(protected) > 0 {
+		return fmt.Errorf("repository has %d protected resource(s); use repo orphan list, forget, or delete first", len(protected))
 	}
 
 	if unschedule {
@@ -664,7 +911,7 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 			continue
 		}
 		if resource.DeleteMode == string(manifest.DeleteModeProtect) {
-			_ = m.managed.Upsert(ctx, storage.ManagedResourceInput{
+			if err := m.managed.Upsert(ctx, storage.ManagedResourceInput{
 				RepoID:       repoRecord.ID,
 				Address:      resource.Address,
 				Kind:         resource.Kind,
@@ -679,7 +926,9 @@ func (m *Manager) ensureBundle(ctx context.Context, repoRecord *storage.Reposito
 				DeleteMode:   resource.DeleteMode,
 				Subtype:      resource.Subtype.String,
 				DependsOn:    resource.DependsOn,
-			})
+			}); err != nil {
+				return fmt.Errorf("record protected orphan %q: %w", resource.Address, err)
+			}
 			continue
 		}
 		if err := deleteManagedResource(ctx, resourceClient, resource); err != nil {

@@ -10,6 +10,15 @@ import (
 
 // ResourceClient contains Nomad operations for bundle-managed resources. It
 // is separate from Client so existing job-only fakes remain source-compatible.
+// ResourceLookup provides read-only name-based discovery used for planning
+// and unmanaged-resource collision checks. It is separate from ResourceClient
+// so existing fakes and apply paths remain source-compatible.
+type ResourceLookup interface {
+	FindHostVolume(ctx context.Context, name, namespace string) (*api.HostVolume, error)
+	FindCSIVolume(ctx context.Context, name, namespace string) (*api.CSIVolume, error)
+	ObserveACLPolicy(ctx context.Context, name string) (*api.ACLPolicy, error)
+}
+
 type ResourceClient interface {
 	Client
 	ApplyHostVolume(ctx context.Context, volume *api.HostVolume) (*api.HostVolume, error)
@@ -36,6 +45,20 @@ func (a *API) ApplyHostVolume(_ context.Context, volume *api.HostVolume) (*api.H
 		return nil, errors.New("Nomad returned an empty host volume response")
 	}
 	return resp.Volume, nil
+}
+
+func (a *API) FindHostVolume(ctx context.Context, name, namespace string) (*api.HostVolume, error) {
+	stubs, _, err := a.client.HostVolumes().List(&api.HostVolumeListRequest{}, &api.QueryOptions{Namespace: namespace})
+	if err != nil {
+		return nil, err
+	}
+	for _, stub := range stubs {
+		if stub == nil || stub.Name != name || effectiveNamespace(stub.Namespace) != effectiveNamespace(namespace) {
+			continue
+		}
+		return a.ObserveHostVolume(ctx, stub.ID, stub.Namespace)
+	}
+	return nil, nil
 }
 
 func (a *API) ObserveHostVolume(_ context.Context, id, namespace string) (*api.HostVolume, error) {
@@ -88,6 +111,20 @@ func (a *API) ApplyCSIVolume(_ context.Context, volume *api.CSIVolume) (*api.CSI
 	return resp.Volumes[0], nil
 }
 
+func (a *API) FindCSIVolume(ctx context.Context, name, namespace string) (*api.CSIVolume, error) {
+	stubs, _, err := a.client.CSIVolumes().List(&api.QueryOptions{Namespace: namespace})
+	if err != nil {
+		return nil, err
+	}
+	for _, stub := range stubs {
+		if stub == nil || stub.Name != name || effectiveNamespace(stub.Namespace) != effectiveNamespace(namespace) {
+			continue
+		}
+		return a.ObserveCSIVolume(ctx, stub.ID, stub.Namespace)
+	}
+	return nil, nil
+}
+
 func (a *API) ObserveCSIVolume(_ context.Context, id, namespace string) (*api.CSIVolume, error) {
 	if id == "" {
 		return nil, nil
@@ -138,6 +175,13 @@ func (a *API) DeleteACLPolicy(_ context.Context, name string) error {
 		return nil
 	}
 	return err
+}
+
+func effectiveNamespace(namespace string) string {
+	if namespace == "" {
+		return "default"
+	}
+	return namespace
 }
 
 func isNotFound(err error) bool {

@@ -84,14 +84,19 @@ nomad-compass --format json --server http://127.0.0.1:8080 status
 nomad-compass repo list
 nomad-compass repo add --name homelab --url https://github.com/example/homelab.git --branch main
 nomad-compass repo plan --id 1
+nomad-compass repo adopt --id 1 --address volume.existing --yes
+nomad-compass repo orphan list --id 1
+nomad-compass repo orphan forget --id 1 --address volume.legacy --yes
+nomad-compass repo orphan delete --id 1 --address volume.legacy --yes
 nomad-compass repo reconcile --id 1
+nomad-compass repo reconcile --id 1 --dry-run
 nomad-compass repo delete --id 1 --unschedule --yes
 nomad-compass credential list
 nomad-compass credential add --name github --type https-token --token "$GITHUB_TOKEN"
 nomad-compass credential delete --id 1 --yes
 ```
 
-`repo plan` is read-only: it syncs the repository, observes tracked resources in Nomad, and reports create/update/delete/protected/unchanged actions without mutating Compass state or Nomad. Destructive commands require `--yes`; `--unschedule` explicitly requests Nomad resource removal. Global options such as `--format` and `--server` are placed before the command verbs.
+`repo plan` is read-only: it syncs the repository, observes tracked resources in Nomad, and reports create/update/delete/protected/unchanged actions without mutating Compass state or Nomad. Protected orphan resources must be explicitly forgotten or deleted before their repository can be removed. Destructive commands require `--yes`; `--unschedule` explicitly requests Nomad resource removal. Global options such as `--format` and `--server` are placed before the command verbs.
 
 ### Running locally
 
