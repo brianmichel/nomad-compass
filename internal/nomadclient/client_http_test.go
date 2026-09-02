@@ -129,7 +129,7 @@ func TestResourceValidationRejectsEmptyInputsBeforeHTTP(t *testing.T) {
 		t.Fatal("validation errors should not make HTTP requests")
 	}
 
-	if status, err := client.JobStatus(ctx, ""); err != nil || status != nil {
+	if status, err := client.JobStatus(ctx, "", ""); err != nil || status != nil {
 		t.Fatalf("empty job ID = %#v, %v; want nil, nil", status, err)
 	}
 	if _, err := client.PlanJob(ctx, nil); err == nil {
@@ -144,9 +144,12 @@ func TestResourceValidationRejectsEmptyInputsBeforeHTTP(t *testing.T) {
 func TestJobStatusAggregatesNomadResponsesAndToleratesOptionalFailures(t *testing.T) {
 	client := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("namespace") != "team-b" {
+			t.Fatalf("request namespace = %q, want team-b", r.URL.Query().Get("namespace"))
+		}
 		switch {
 		case r.URL.Path == "/v1/job/job-1":
-			_, _ = w.Write([]byte(`{"ID":"job-1","Name":"web","Namespace":"team-a","Type":"service","Status":"running","TaskGroups":[{"Count":2}]}`))
+			_, _ = w.Write([]byte(`{"ID":"job-1","Name":"web","Namespace":"team-b","Type":"service","Status":"running","TaskGroups":[{"Count":2}]}`))
 		case strings.HasSuffix(r.URL.Path, "/summary"):
 			_, _ = w.Write([]byte(`{"Summary":{"web":{"Running":1,"Starting":1,"Failed":1}}}`))
 		case strings.HasSuffix(r.URL.Path, "/deployment"):
@@ -158,11 +161,11 @@ func TestJobStatusAggregatesNomadResponsesAndToleratesOptionalFailures(t *testin
 		}
 	}))
 
-	status, err := client.JobStatus(context.Background(), "job-1")
+	status, err := client.JobStatus(context.Background(), "job-1", "team-b")
 	if err != nil {
 		t.Fatalf("job status: %v", err)
 	}
-	if !status.Exists || status.Name != "web" || status.Namespace != "team-a" || status.Type != "service" {
+	if !status.Exists || status.Name != "web" || status.Namespace != "team-b" || status.Type != "service" {
 		t.Fatalf("unexpected identity: %#v", status)
 	}
 	if status.DesiredAllocs != 2 || status.RunningAllocs != 1 || status.StartingAllocs != 1 || status.FailedAllocs != 1 {
@@ -179,9 +182,31 @@ func TestJobStatusAggregatesNomadResponsesAndToleratesOptionalFailures(t *testin
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
-	status, err = degradedClient.JobStatus(context.Background(), "job-2")
+	status, err = degradedClient.JobStatus(context.Background(), "job-2", "team-a")
 	if err != nil || status == nil || status.DerivedStatus != "running" {
 		t.Fatalf("optional status endpoint failure should preserve base status: %#v, %v", status, err)
+	}
+}
+
+func TestJobWritesUseExplicitJobNamespace(t *testing.T) {
+	client := testAPI(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("namespace") != "team-b" {
+			t.Fatalf("write namespace = %q, want team-b", r.URL.Query().Get("namespace"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"EvalID":"eval-1"}`))
+	}))
+	jobID := "job-1"
+	namespace := "team-b"
+	job := &api.Job{ID: &jobID, Namespace: &namespace}
+	if err := client.RegisterJob(context.Background(), job, nil); err != nil {
+		t.Fatalf("register job: %v", err)
+	}
+	if _, err := client.PlanJob(context.Background(), job); err != nil {
+		t.Fatalf("plan job: %v", err)
+	}
+	if err := client.DeregisterJob(context.Background(), "job-1", "team-b", true); err != nil {
+		t.Fatalf("deregister job: %v", err)
 	}
 }
 
@@ -193,11 +218,11 @@ func TestJobStatusMapsNotFoundButPropagatesForbidden(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusForbidden)
 	}))
-	missing, err := client.JobStatus(context.Background(), "missing")
+	missing, err := client.JobStatus(context.Background(), "missing", "team-a")
 	if err != nil || missing == nil || missing.Exists {
 		t.Fatalf("missing job = %#v, %v; want non-existing status", missing, err)
 	}
-	if _, err := client.JobStatus(context.Background(), "forbidden"); err == nil {
+	if _, err := client.JobStatus(context.Background(), "forbidden", "team-a"); err == nil {
 		t.Fatal("expected forbidden job lookup to fail")
 	}
 }

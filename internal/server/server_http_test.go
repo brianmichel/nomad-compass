@@ -134,6 +134,10 @@ func (r *handlerReconciler) AdoptBundleResource(_ context.Context, _ int64, addr
 	r.adoptCalls = append(r.adoptCalls, address)
 	return r.err
 }
+func (r *handlerReconciler) AdoptJob(_ context.Context, _ int64, path string) error {
+	r.adoptCalls = append(r.adoptCalls, path)
+	return r.err
+}
 func (r *handlerReconciler) DeleteRepository(_ context.Context, id int64, unschedule bool) error {
 	r.deleteRepoCalls = append(r.deleteRepoCalls, struct {
 		id         int64
@@ -153,9 +157,9 @@ func (r *handlerReconciler) DeleteCredential(_ context.Context, id int64, delete
 type handlerNomad struct{ pingErr error }
 
 func (n handlerNomad) RegisterJob(context.Context, *api.Job, *api.JobSubmission) error { return nil }
-func (n handlerNomad) DeregisterJob(context.Context, string, bool) error               { return nil }
+func (n handlerNomad) DeregisterJob(context.Context, string, string, bool) error       { return nil }
 func (n handlerNomad) Ping(context.Context) error                                      { return n.pingErr }
-func (n handlerNomad) JobStatus(context.Context, string) (*nomadclient.JobStatus, error) {
+func (n handlerNomad) JobStatus(context.Context, string, string) (*nomadclient.JobStatus, error) {
 	return nil, nil
 }
 func (n handlerNomad) PlanJob(context.Context, *api.Job) (*api.JobPlanResponse, error) {
@@ -330,6 +334,7 @@ func TestHandlerDispatchesMutationsAndMapsBackendErrors(t *testing.T) {
 		{"/api/repos/42/orphans/forget", map[string]any{"address": "volume.data"}, []string{"forget"}},
 		{"/api/repos/42/orphans/delete", map[string]any{"address": "volume.data"}, []string{"delete"}},
 		{"/api/repos/42/adopt", map[string]any{"address": "volume.data"}, []string{"adopt"}},
+		{"/api/repos/42/adopt", map[string]any{"path": ".nomad/api.nomad.hcl"}, []string{"adopt"}},
 	} {
 		resp = request(t, server.URL, http.MethodPost, tc.path, tc.body)
 		resp.Body.Close()

@@ -21,6 +21,20 @@
       <span class="badge badge-sm job-status-badge" :class="statusBadgeClass" :title="statusTooltip">
         {{ statusLabel }}
       </span>
+      <button
+        v-if="job.adoptable"
+        class="btn btn-warning btn-xs adopt-button"
+        type="button"
+        :disabled="adopting"
+        :title="job.management_description || 'Adopt this existing Nomad job'"
+        @click="emit('adopt', job)"
+      >
+        <span v-if="adopting" class="loading loading-spinner loading-xs"></span>
+        {{ adopting ? 'Adopting' : 'Adopt' }}
+      </button>
+      <span v-else-if="job.management_status === 'adoption_required' || job.management_status === 'conflict'" class="management-warning" :title="job.management_description">
+        {{ job.management_status === 'conflict' ? 'Nomad job differs' : 'Adoption required' }}
+      </span>
     </td>
     <td class="job-cell job-cell-type" :data-label="compact ? 'Type' : null">
       <span v-if="jobTypeDisplay" class="job-type-chip">{{ jobTypeDisplay }}</span>
@@ -63,7 +77,10 @@ import { getJobStatusClass, getJobStatusLabel, getJobStatusTooltip } from '@/uti
 const props = defineProps<{
   job: RepoJob;
   compact?: boolean;
+  adopting?: boolean;
 }>();
+const emit = defineEmits<{ (e: 'adopt', job: RepoJob): void }>();
+const adopting = computed(() => props.adopting ?? false);
 
 const jobName = computed(() => props.job.job_name || props.job.job_id || props.job.path);
 const statusClass = computed(() => getJobStatusClass(props.job));
@@ -249,6 +266,18 @@ a.job-name:focus-visible svg {
 
 .job-cell-status {
   min-width: 105px;
+}
+
+.adopt-button {
+  display: block;
+  margin-top: .35rem;
+}
+
+.management-warning {
+  display: block;
+  margin-top: .3rem;
+  color: var(--color-danger);
+  font-size: .65rem;
 }
 
 .job-cell-type {

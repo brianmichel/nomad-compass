@@ -2,6 +2,7 @@ import { reactive, toRefs } from 'vue';
 import {
   createCredential as requestCreateCredential,
   createRepo as requestCreateRepo,
+  adoptRepoJob as requestAdoptRepoJob,
   fetchCredentials,
   fetchRepos,
   fetchStatus,
@@ -29,6 +30,7 @@ interface CompassState {
   savingCredential: boolean;
   savingRepo: boolean;
   syncingRepoId: number | null;
+  adoptingJobPath: string | null;
   deletingRepoId: number | null;
   deletingCredentialId: number | null;
   refreshIntervalMs: number;
@@ -46,6 +48,7 @@ const state = reactive<CompassState>({
   savingCredential: false,
   savingRepo: false,
   syncingRepoId: null,
+  adoptingJobPath: null,
   deletingRepoId: null,
   deletingCredentialId: null,
   refreshIntervalMs: DEFAULT_REFRESH_INTERVAL_MS,
@@ -134,6 +137,19 @@ async function triggerReconcile(id: number) {
   }
 }
 
+async function adoptJob(repoId: number, path: string) {
+  try {
+    state.adoptingJobPath = path;
+    await requestAdoptRepoJob(repoId, path);
+    await loadRepos();
+  } catch (err) {
+    setError(err);
+    throw err;
+  } finally {
+    state.adoptingJobPath = null;
+  }
+}
+
 async function deleteRepo(id: number, options: DeleteRepoOptions) {
   try {
     state.deletingRepoId = id;
@@ -182,6 +198,7 @@ export function useCompassStore() {
     createRepo,
     deleteRepo,
     triggerReconcile,
+    adoptJob,
     clearError,
     setError,
     setRefreshInterval,

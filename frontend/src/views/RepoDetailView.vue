@@ -73,7 +73,17 @@
           <p>Workloads discovered from <code>{{ repo.job_path || '—' }}</code></p>
         </div>
       </header>
-      <RepoJobList :jobs="jobs" :enable-collapse="false" :show-header="false" />
+      <div v-if="hasAdoptableJobs" class="alert alert-warning alert-soft adoption-alert" role="alert">
+        <IconAlertTriangle aria-hidden="true" />
+        <span>Existing Nomad jobs are paused until you explicitly adopt them.</span>
+      </div>
+      <RepoJobList
+        :jobs="jobs"
+        :enable-collapse="false"
+        :show-header="false"
+        :adopting-job-path="adoptingJobPath"
+        @adopt="handleAdopt"
+      />
     </section>
   </div>
 
@@ -127,7 +137,7 @@ import type { Repo } from '@/types';
 
 const route = useRoute();
 const router = useRouter();
-const { repos, credentials, loadRepos, triggerReconcile, deleteRepo, syncingRepoId, deletingRepoId } = useCompassStore();
+const { repos, credentials, loadRepos, triggerReconcile, adoptJob, deleteRepo, syncingRepoId, adoptingJobPath, deletingRepoId } = useCompassStore();
 
 const isLoading = ref(true);
 const showDeleteDialog = ref(false);
@@ -138,6 +148,7 @@ const repoId = computed(() => {
 });
 const repo = computed<Repo | undefined>(() => repos.value.find((candidate) => candidate.id === repoId.value));
 const jobs = computed(() => repo.value?.jobs ?? []);
+const hasAdoptableJobs = computed(() => jobs.value.some((job) => job.adoptable));
 const credential = computed(() => credentials.value.find((item) => item.id === repo.value?.credential_id));
 const credentialName = computed(() => credential.value?.name ?? (repo.value?.credential_id ? 'Managed credential' : 'None required'));
 const isSyncing = computed(() => syncingRepoId.value === repoId.value);
@@ -162,6 +173,11 @@ function goBack(): void {
 async function handleReconcile(): Promise<void> {
   if (!repo.value) return;
   try { await triggerReconcile(repo.value.id); } catch { /* surfaced globally */ }
+}
+
+async function handleAdopt(job: { path: string }): Promise<void> {
+  if (!repo.value) return;
+  try { await adoptJob(repo.value.id, job.path); } catch { /* surfaced globally */ }
 }
 
 function closeDeleteDialog(): void {
@@ -207,6 +223,9 @@ async function confirmDelete(): Promise<void> {
 .repo-metadata .stat-value { overflow: hidden; color: var(--color-text-primary); font-size: .78rem; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .repo-metadata .stat-value code { font-family: var(--font-mono); font-size: .75rem; }
 .jobs-panel { min-width: 0; }
+.adoption-alert { margin-bottom: .7rem; }
+.adoption-alert svg { width: 1rem; }
+.adoption-alert span { font-size: .78rem; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: .7rem; }
 .section-title-row { display: flex; align-items: center; gap: .5rem; }
 .section-heading h2 { margin: 0; color: var(--color-text-primary); font-size: .98rem; font-weight: 680; letter-spacing: -.01em; }

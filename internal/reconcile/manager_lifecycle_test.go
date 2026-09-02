@@ -12,7 +12,9 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/hashicorp/nomad/api"
 
+	"github.com/brianmichel/nomad-compass/internal/nomadclient"
 	repomodel "github.com/brianmichel/nomad-compass/internal/repo"
 	"github.com/brianmichel/nomad-compass/internal/storage"
 )
@@ -106,6 +108,48 @@ func TestReconcileRepoSyncsAppliesAndThenOnlyPollsUnchangedRepository(t *testing
 	cancel()
 	if err := manager.Run(cancelled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled Run error = %v, want context canceled", err)
+	}
+}
+
+func TestReconcileRepoRequiresExplicitAdoptionForExistingLegacyJob(t *testing.T) {
+	remote := createLocalRemote(t, `job "demo" {
+  namespace = "team-a"
+  datacenters = ["dc1"]
+}`)
+	manager, record, fake := newLifecycleManager(t, remote)
+	fake.jobStatuses = map[string]*nomadclient.JobStatus{
+		"demo": {ID: "demo", Exists: true, Namespace: "team-a", Status: "running"},
+	}
+	fake.planResponses = map[string]*api.JobPlanResponse{"demo": {}}
+	ctx := context.Background()
+
+	if err := manager.ReconcileRepo(ctx, record.ID); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	if fake.registerCalls != 0 {
+		t.Fatalf("existing job was overwritten before adoption: %d registrations", fake.registerCalls)
+	}
+	files, err := manager.files.ListByRepo(ctx, record.ID)
+	if err != nil || len(files) != 1 || files[0].Status != "adoption_required" || files[0].Namespace.String != "team-a" {
+		t.Fatalf("unexpected adoption state: %v %#v", err, files)
+	}
+
+	if err := manager.AdoptJob(ctx, record.ID, files[0].Path); err != nil {
+		t.Fatalf("adopt job: %v", err)
+	}
+	files, err = manager.files.ListByRepo(ctx, record.ID)
+	if err != nil || len(files) != 1 || files[0].Status != "applied" {
+		t.Fatalf("job was not adopted: %v %#v", err, files)
+	}
+	if fake.registerCalls != 0 {
+		t.Fatalf("adoption registered a job: %d", fake.registerCalls)
+	}
+
+	if err := manager.ReconcileRepo(ctx, record.ID); err != nil {
+		t.Fatalf("reconcile after adoption: %v", err)
+	}
+	if fake.registerCalls != 0 {
+		t.Fatalf("unchanged adopted job was reapplied: %d", fake.registerCalls)
 	}
 }
 

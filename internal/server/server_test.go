@@ -18,13 +18,14 @@ type fakeNomadClient struct {
 	statusByID map[string]*nomadclient.JobStatus
 	errByID    map[string]error
 	calls      []string
+	namespaces []string
 }
 
 func (f *fakeNomadClient) RegisterJob(ctx context.Context, job *api.Job, submission *api.JobSubmission) error {
 	return nil
 }
 
-func (f *fakeNomadClient) DeregisterJob(ctx context.Context, jobID string, purge bool) error {
+func (f *fakeNomadClient) DeregisterJob(ctx context.Context, jobID, namespace string, purge bool) error {
 	return nil
 }
 
@@ -32,8 +33,9 @@ func (f *fakeNomadClient) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (f *fakeNomadClient) JobStatus(ctx context.Context, jobID string) (*nomadclient.JobStatus, error) {
+func (f *fakeNomadClient) JobStatus(ctx context.Context, jobID, namespace string) (*nomadclient.JobStatus, error) {
 	f.calls = append(f.calls, jobID)
+	f.namespaces = append(f.namespaces, namespace)
 	if f.errByID != nil {
 		if err, ok := f.errByID[jobID]; ok {
 			return nil, err
@@ -131,7 +133,7 @@ func TestListRepositoryResponsesWithJobStatus(t *testing.T) {
 		t.Fatalf("create repo: %v", err)
 	}
 
-	if err := fileStore.Upsert(ctx, repo.ID, "jobs/api.nomad", "abcd1234", "job-123"); err != nil {
+	if err := fileStore.UpsertWithNamespaceAndState(ctx, repo.ID, "jobs/api.nomad", "abcd1234", "job-123", "team-b", "applied", "", "allow"); err != nil {
 		t.Fatalf("upsert file: %v", err)
 	}
 
@@ -139,7 +141,7 @@ func TestListRepositoryResponsesWithJobStatus(t *testing.T) {
 		"job-123": {
 			ID:                   "job-123",
 			Name:                 "api",
-			Namespace:            "default",
+			Namespace:            "team-b",
 			Type:                 "service",
 			Status:               "running",
 			StatusDescription:    "Running",
@@ -178,15 +180,15 @@ func TestListRepositoryResponsesWithJobStatus(t *testing.T) {
 	if job.JobType != "service" {
 		t.Fatalf("expected job type service, got %s", job.JobType)
 	}
-	expectedURL := "http://nomad.local/ui/jobs/job-123@default"
+	expectedURL := "http://nomad.local/ui/jobs/job-123@team-b"
 	if job.JobURL != expectedURL {
 		t.Fatalf("expected job url %s, got %s", expectedURL, job.JobURL)
 	}
 	if len(job.Allocations) != 1 || job.Allocations[0].ID != "alloc-1" {
 		t.Fatalf("unexpected allocations: %+v", job.Allocations)
 	}
-	if len(nomad.calls) != 1 || nomad.calls[0] != "job-123" {
-		t.Fatalf("unexpected nomad calls: %v", nomad.calls)
+	if len(nomad.calls) != 1 || nomad.calls[0] != "job-123" || len(nomad.namespaces) != 1 || nomad.namespaces[0] != "team-b" {
+		t.Fatalf("unexpected nomad calls: %v namespaces: %v", nomad.calls, nomad.namespaces)
 	}
 }
 

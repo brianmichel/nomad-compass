@@ -210,7 +210,15 @@ func (m *Manager) PlanRepo(ctx context.Context, repoID int64) (*bundleplan.Repor
 		lookup = func(ctx context.Context, resource manifest.Resource) (bool, error) {
 			switch resource.Kind {
 			case "job":
-				status, err := m.nomad.JobStatus(ctx, resource.Name)
+				source, err := manifest.NativeJobSource(resource)
+				if err != nil {
+					return false, err
+				}
+				job, _, err := parseJob(resource.SourcePath, source)
+				if err != nil {
+					return false, err
+				}
+				status, err := m.nomad.JobStatus(ctx, resource.Name, desiredJobNamespace(job))
 				return status != nil && status.Exists, err
 			default:
 				adapter, ok := adapterFor(resource.Kind)
@@ -369,7 +377,7 @@ func (m *Manager) DeleteProtectedResource(ctx context.Context, repoID int64, add
 		return fmt.Errorf("resource %q is not a protected orphan", address)
 	}
 	if resource.Kind == "job" {
-		if err := m.nomad.DeregisterJob(ctx, resource.NomadID.String, true); err != nil {
+		if err := m.nomad.DeregisterJob(ctx, resource.NomadID.String, resource.Namespace.String, true); err != nil {
 			return err
 		}
 	} else {
@@ -518,10 +526,10 @@ func (m *Manager) unscheduleJobs(ctx context.Context, repoID int64) error {
 		return err
 	}
 	for _, file := range files {
-		if !file.JobID.Valid || file.JobID.String == "" {
+		if file.Status == "adoption_required" || !file.JobID.Valid || file.JobID.String == "" {
 			continue
 		}
-		if err := m.nomad.DeregisterJob(ctx, file.JobID.String, true); err != nil {
+		if err := m.nomad.DeregisterJob(ctx, file.JobID.String, file.Namespace.String, true); err != nil {
 			return err
 		}
 	}
@@ -906,7 +914,7 @@ func (m *Manager) recordManagedResourceFailure(ctx context.Context, repoID int64
 
 func deleteManagedResource(ctx context.Context, client nomadclient.ResourceClient, resource storage.ManagedResource) error {
 	if resource.Kind == "job" {
-		return client.DeregisterJob(ctx, resource.NomadID.String, true)
+		return client.DeregisterJob(ctx, resource.NomadID.String, resource.Namespace.String, true)
 	}
 	adapter, ok := adapterFor(resource.Kind)
 	if !ok {

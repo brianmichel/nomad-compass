@@ -197,23 +197,31 @@ func NewRepoFileStore(db *sql.DB) *RepoFileStore {
 
 // Upsert stores or updates repo file metadata with the default deletion mode.
 func (s *RepoFileStore) Upsert(ctx context.Context, repoID int64, path string, commit string, jobID string) error {
-	return s.UpsertWithDeleteMode(ctx, repoID, path, commit, jobID, "allow")
+	return s.UpsertWithNamespaceAndState(ctx, repoID, path, commit, jobID, "", "applied", "", "allow")
 }
 
 // UpsertWithDeleteMode stores repo file metadata and its bundle deletion mode.
 func (s *RepoFileStore) UpsertWithDeleteMode(ctx context.Context, repoID int64, path string, commit string, jobID string, deleteMode string) error {
+	return s.UpsertWithNamespaceAndState(ctx, repoID, path, commit, jobID, "", "applied", "", deleteMode)
+}
+
+// UpsertWithNamespaceAndState stores the job identity, namespace, and ownership state.
+func (s *RepoFileStore) UpsertWithNamespaceAndState(ctx context.Context, repoID int64, path string, commit string, jobID, namespace, status, lastError, deleteMode string) error {
 	if deleteMode == "" {
 		deleteMode = "allow"
 	}
+	if status == "" {
+		status = "applied"
+	}
 	now := Now()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO repo_files (repo_id, path, last_commit, updated_at, job_id, delete_mode) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(repo_id, path) DO UPDATE SET last_commit = excluded.last_commit, updated_at = excluded.updated_at, job_id = excluded.job_id, delete_mode = excluded.delete_mode`, repoID, path, commitOrNull(commit), now, jobIDOrNull(jobID), deleteMode)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO repo_files (repo_id, path, last_commit, updated_at, job_id, namespace, status, last_error, delete_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(repo_id, path) DO UPDATE SET last_commit = excluded.last_commit, updated_at = excluded.updated_at, job_id = excluded.job_id, namespace = excluded.namespace, status = excluded.status, last_error = excluded.last_error, delete_mode = excluded.delete_mode`, repoID, path, commitOrNull(commit), now, jobIDOrNull(jobID), stringOrNull(namespace), status, stringOrNull(lastError), deleteMode)
 	return err
 }
 
 // ListByRepo returns tracked files for a repo.
 func (s *RepoFileStore) ListByRepo(ctx context.Context, repoID int64) ([]RepoFile, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, path, last_commit, updated_at, job_id, delete_mode FROM repo_files WHERE repo_id = ?`, repoID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, repo_id, path, last_commit, updated_at, job_id, namespace, status, last_error, delete_mode FROM repo_files WHERE repo_id = ?`, repoID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +231,7 @@ func (s *RepoFileStore) ListByRepo(ctx context.Context, repoID int64) ([]RepoFil
 	for rows.Next() {
 		var file RepoFile
 		if err := rows.Scan(&file.ID, &file.RepoID, &file.Path, &file.LastCommit, &file.UpdatedAt, &file.JobID,
-			&file.DeleteMode); err != nil {
+			&file.Namespace, &file.Status, &file.LastError, &file.DeleteMode); err != nil {
 			return nil, err
 		}
 		files = append(files, file)

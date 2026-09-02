@@ -61,29 +61,32 @@ func newRepositoryResponse(repo storage.Repository) repositoryResponse {
 }
 
 type repositoryJobResponse struct {
-	Path                 string                         `json:"path"`
-	JobID                string                         `json:"job_id,omitempty"`
-	JobName              string                         `json:"job_name,omitempty"`
-	Namespace            string                         `json:"namespace,omitempty"`
-	JobType              string                         `json:"job_type,omitempty"`
-	LastCommit           *string                        `json:"last_commit,omitempty"`
-	UpdatedAt            time.Time                      `json:"updated_at"`
-	Status               string                         `json:"status,omitempty"`
-	StatusDescription    string                         `json:"status_description,omitempty"`
-	StatusError          string                         `json:"status_error,omitempty"`
-	NomadStatus          string                         `json:"nomad_status,omitempty"`
-	DesiredAllocs        int                            `json:"desired_allocations,omitempty"`
-	RunningAllocs        int                            `json:"running_allocations,omitempty"`
-	StartingAllocs       int                            `json:"starting_allocations,omitempty"`
-	QueuedAllocs         int                            `json:"queued_allocations,omitempty"`
-	FailedAllocs         int                            `json:"failed_allocations,omitempty"`
-	LostAllocs           int                            `json:"lost_allocations,omitempty"`
-	UnknownAllocs        int                            `json:"unknown_allocations,omitempty"`
-	LatestDeploymentID   string                         `json:"latest_deployment_id,omitempty"`
-	LatestAllocationID   string                         `json:"latest_allocation_id,omitempty"`
-	LatestAllocationName string                         `json:"latest_allocation_name,omitempty"`
-	JobURL               string                         `json:"job_url,omitempty"`
-	Allocations          []nomadclient.AllocationStatus `json:"allocations,omitempty"`
+	Path                  string                         `json:"path"`
+	JobID                 string                         `json:"job_id,omitempty"`
+	JobName               string                         `json:"job_name,omitempty"`
+	Namespace             string                         `json:"namespace,omitempty"`
+	JobType               string                         `json:"job_type,omitempty"`
+	LastCommit            *string                        `json:"last_commit,omitempty"`
+	UpdatedAt             time.Time                      `json:"updated_at"`
+	Status                string                         `json:"status,omitempty"`
+	StatusDescription     string                         `json:"status_description,omitempty"`
+	StatusError           string                         `json:"status_error,omitempty"`
+	ManagementStatus      string                         `json:"management_status,omitempty"`
+	ManagementDescription string                         `json:"management_description,omitempty"`
+	Adoptable             bool                           `json:"adoptable,omitempty"`
+	NomadStatus           string                         `json:"nomad_status,omitempty"`
+	DesiredAllocs         int                            `json:"desired_allocations,omitempty"`
+	RunningAllocs         int                            `json:"running_allocations,omitempty"`
+	StartingAllocs        int                            `json:"starting_allocations,omitempty"`
+	QueuedAllocs          int                            `json:"queued_allocations,omitempty"`
+	FailedAllocs          int                            `json:"failed_allocations,omitempty"`
+	LostAllocs            int                            `json:"lost_allocations,omitempty"`
+	UnknownAllocs         int                            `json:"unknown_allocations,omitempty"`
+	LatestDeploymentID    string                         `json:"latest_deployment_id,omitempty"`
+	LatestAllocationID    string                         `json:"latest_allocation_id,omitempty"`
+	LatestAllocationName  string                         `json:"latest_allocation_name,omitempty"`
+	JobURL                string                         `json:"job_url,omitempty"`
+	Allocations           []nomadclient.AllocationStatus `json:"allocations,omitempty"`
 }
 
 type protectedResourceResponse struct {
@@ -110,9 +113,12 @@ func newProtectedResourceResponse(resource storage.ManagedResource) protectedRes
 
 func newRepositoryJobResponse(file storage.RepoFile) repositoryJobResponse {
 	return repositoryJobResponse{
-		Path:       file.Path,
-		LastCommit: nullableString(file.LastCommit),
-		UpdatedAt:  file.UpdatedAt,
+		Path:                  file.Path,
+		LastCommit:            nullableString(file.LastCommit),
+		UpdatedAt:             file.UpdatedAt,
+		ManagementStatus:      file.Status,
+		ManagementDescription: file.LastError.String,
+		Adoptable:             file.Status == "adoption_required",
 	}
 }
 

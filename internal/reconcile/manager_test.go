@@ -1173,7 +1173,7 @@ func (f *fakeNomad) RegisterJob(_ context.Context, job *api.Job, submission *api
 	return nil
 }
 
-func (f *fakeNomad) DeregisterJob(_ context.Context, jobID string, _ bool) error {
+func (f *fakeNomad) DeregisterJob(_ context.Context, jobID, _ string, _ bool) error {
 	f.resourceCalls = append(f.resourceCalls, "delete-job:"+jobID)
 	if f.lastJob != nil && f.lastJob.ID != nil && *f.lastJob.ID == jobID {
 		f.lastJob = nil
@@ -1186,7 +1186,7 @@ func (f *fakeNomad) Ping(context.Context) error {
 	return nil
 }
 
-func (f *fakeNomad) JobStatus(_ context.Context, jobID string) (*nomadclient.JobStatus, error) {
+func (f *fakeNomad) JobStatus(_ context.Context, jobID, _ string) (*nomadclient.JobStatus, error) {
 	if f.jobStatusErr != nil {
 		return nil, f.jobStatusErr
 	}

@@ -47,6 +47,9 @@ type RepoFile struct {
 	LastCommit sql.NullString
 	UpdatedAt  time.Time
 	JobID      sql.NullString
+	Namespace  sql.NullString
+	Status     string
+	LastError  sql.NullString
 	DeleteMode sql.NullString
 }
 

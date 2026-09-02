@@ -45,7 +45,7 @@ func (s *Server) buildJobResponse(ctx context.Context, repo storage.Repository, 
 
 	jobResp.JobID = file.JobID.String
 
-	status, err := s.nomad.JobStatus(ctx, file.JobID.String)
+	status, err := s.nomad.JobStatus(ctx, file.JobID.String, file.Namespace.String)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("fetch job status failed", "repo_id", repo.ID, "repo", repo.Name, "job_id", file.JobID.String, "error", err)
