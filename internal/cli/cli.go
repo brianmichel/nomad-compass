@@ -266,28 +266,38 @@ func newRepoCommand(state *commandState) *cobra.Command {
 
 	var adoptID int64
 	var adoptAddress string
+	var adoptPath string
 	var adoptConfirm bool
 	adoptCommand := &cobra.Command{
 		Use:   "adopt",
-		Short: "Explicitly adopt an existing matching Nomad resource",
+		Short: "Explicitly adopt an existing matching Nomad resource or job",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if adoptID <= 0 || strings.TrimSpace(adoptAddress) == "" {
-				return errors.New("--id and --address are required")
+			if adoptID <= 0 || (strings.TrimSpace(adoptAddress) == "" && strings.TrimSpace(adoptPath) == "") {
+				return errors.New("--id and either --address or --path are required")
+			}
+			if strings.TrimSpace(adoptAddress) != "" && strings.TrimSpace(adoptPath) != "" {
+				return errors.New("--address and --path cannot be combined")
 			}
 			if !adoptConfirm {
 				return errors.New("adoption requires --yes")
 			}
 			path := "/api/repos/" + strconv.FormatInt(adoptID, 10) + "/adopt"
-			if err := state.client().post(cmd.Context(), path, orphanActionRequest{Address: adoptAddress}, nil); err != nil {
+			request := orphanActionRequest{Address: adoptAddress, Path: adoptPath}
+			if err := state.client().post(cmd.Context(), path, request, nil); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintf(state.out, "adopted resource %s\n", adoptAddress)
+			label := adoptAddress
+			if label == "" {
+				label = adoptPath
+			}
+			_, err := fmt.Fprintf(state.out, "adopted resource %s\n", label)
 			return err
 		},
 	}
 	adoptCommand.Flags().Int64Var(&adoptID, "id", 0, "repository ID")
-	adoptCommand.Flags().StringVar(&adoptAddress, "address", "", "resource address")
+	adoptCommand.Flags().StringVar(&adoptAddress, "address", "", "bundle resource address")
+	adoptCommand.Flags().StringVar(&adoptPath, "path", "", "legacy job file path")
 	adoptCommand.Flags().BoolVar(&adoptConfirm, "yes", false, "confirm ownership adoption")
 
 	var deleteID int64
@@ -880,7 +890,8 @@ type protectedResourceResponse struct {
 }
 
 type orphanActionRequest struct {
-	Address string `json:"address"`
+	Address string `json:"address,omitempty"`
+	Path    string `json:"path,omitempty"`
 }
 
 type createCredentialRequest struct {

@@ -78,6 +78,13 @@ func TestRepoFileStoreUpsertAndDeletesRows(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatalf("files after delete = %#v, err = %v", files, err)
 	}
+	if err := store.UpsertWithNamespaceAndState(ctx, 1, "jobs/a.nomad", "", "api", "team-a", "adoption_required", "job exists", "allow"); err != nil {
+		t.Fatal(err)
+	}
+	files, err = store.ListByRepo(ctx, 1)
+	if err != nil || len(files) != 1 || files[0].Namespace.String != "team-a" || files[0].Status != "adoption_required" || files[0].LastError.String != "job exists" {
+		t.Fatalf("job state = %#v, err = %v", files, err)
+	}
 	if err := store.Upsert(ctx, 1, "jobs/a.nomad", "", ""); err != nil {
 		t.Fatal(err)
 	}

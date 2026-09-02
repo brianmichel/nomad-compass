@@ -56,6 +56,13 @@ export function triggerRepoReconcile(id: number) {
   });
 }
 
+export function adoptRepoJob(id: number, path: string) {
+  return httpRequest<void>(`${API_BASE}/repos/${id}/adopt`, {
+    method: 'POST',
+    json: { path },
+  });
+}
+
 export function fetchStatus() {
   return httpRequest<CompassStatus>(`${API_BASE}/status`);
 }

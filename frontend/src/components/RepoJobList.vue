@@ -33,6 +33,8 @@
               :key="job.path"
               :job="job"
               :compact="isCompact"
+              :adopting="adoptingJobPath === job.path"
+              @adopt="emit('adopt', $event)"
             />
           </tbody>
         </table>
@@ -60,7 +62,10 @@ const props = defineProps<{
   jobs: RepoJobType[];
   enableCollapse?: boolean;
   showHeader?: boolean;
+  adoptingJobPath?: string | null;
 }>();
+const emit = defineEmits<{ (e: 'adopt', job: RepoJobType): void }>();
+const adoptingJobPath = computed(() => props.adoptingJobPath ?? null);
 
 const collapseEnabled = computed(() => props.enableCollapse !== false);
 const showHeader = computed(() => props.showHeader !== false);

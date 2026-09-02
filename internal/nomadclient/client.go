@@ -15,9 +15,9 @@ import (
 // Client defines the operations Nomad Compass uses.
 type Client interface {
 	RegisterJob(ctx context.Context, job *api.Job, submission *api.JobSubmission) error
-	DeregisterJob(ctx context.Context, jobID string, purge bool) error
+	DeregisterJob(ctx context.Context, jobID, namespace string, purge bool) error
 	Ping(ctx context.Context) error
-	JobStatus(ctx context.Context, jobID string) (*JobStatus, error)
+	JobStatus(ctx context.Context, jobID, namespace string) (*JobStatus, error)
 	PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, error)
 }
 
@@ -88,7 +88,7 @@ func (a *API) RegisterJob(ctx context.Context, job *api.Job, submission *api.Job
 	if submission != nil {
 		opts = &api.RegisterOptions{Submission: submission}
 	}
-	_, _, err := a.client.Jobs().RegisterOpts(job, opts, nil)
+	_, _, err := a.client.Jobs().RegisterOpts(job, opts, jobWriteOptions(job))
 	return err
 }
 
@@ -100,7 +100,7 @@ func (a *API) PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, 
 	if job.ID == nil || *job.ID == "" {
 		return nil, errors.New("job ID is required for planning")
 	}
-	resp, _, err := a.client.Jobs().Plan(job, true, nil)
+	resp, _, err := a.client.Jobs().Plan(job, true, jobWriteOptions(job))
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +108,34 @@ func (a *API) PlanJob(ctx context.Context, job *api.Job) (*api.JobPlanResponse, 
 }
 
 // DeregisterJob removes a Nomad job by ID.
-func (a *API) DeregisterJob(ctx context.Context, jobID string, purge bool) error {
-	_, _, err := a.client.Jobs().Deregister(jobID, purge, nil)
+func (a *API) DeregisterJob(ctx context.Context, jobID, namespace string, purge bool) error {
+	_, _, err := a.client.Jobs().Deregister(jobID, purge, namespaceWriteOptions(namespace))
 	return err
+}
+
+func namespaceQueryOptions(namespace string) *api.QueryOptions {
+	if namespace == "" {
+		return nil
+	}
+	return &api.QueryOptions{Namespace: namespace}
+}
+
+func namespaceWriteOptions(namespace string) *api.WriteOptions {
+	if namespace == "" {
+		return nil
+	}
+	return &api.WriteOptions{Namespace: namespace}
+}
+
+func jobNamespace(job *api.Job) string {
+	if job != nil && job.Namespace != nil {
+		return *job.Namespace
+	}
+	return ""
+}
+
+func jobWriteOptions(job *api.Job) *api.WriteOptions {
+	return namespaceWriteOptions(jobNamespace(job))
 }
 
 // Ping verifies connectivity with the Nomad control plane.
@@ -122,12 +147,13 @@ func (a *API) Ping(ctx context.Context) error {
 }
 
 // JobStatus fetches the current status for a Nomad job by ID.
-func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
+func (a *API) JobStatus(ctx context.Context, jobID, namespace string) (*JobStatus, error) {
 	if jobID == "" {
 		return nil, nil
 	}
 
-	job, _, err := a.client.Jobs().Info(jobID, nil)
+	query := namespaceQueryOptions(namespace)
+	job, _, err := a.client.Jobs().Info(jobID, query)
 	if err != nil {
 		var unexpected api.UnexpectedResponseError
 		if errors.As(err, &unexpected) && unexpected.StatusCode() == http.StatusNotFound {
@@ -161,7 +187,7 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		DesiredAllocs:     desiredFromGroups,
 	}
 
-	if statusSummaries, _, err := a.client.Jobs().Summary(status.ID, nil); err == nil && statusSummaries != nil && statusSummaries.Summary != nil {
+	if statusSummaries, _, err := a.client.Jobs().Summary(status.ID, query); err == nil && statusSummaries != nil && statusSummaries.Summary != nil {
 		var desired, running, starting, queued, failed, lost, unknown int
 		for _, grp := range statusSummaries.Summary {
 			running += grp.Running
@@ -184,14 +210,14 @@ func (a *API) JobStatus(ctx context.Context, jobID string) (*JobStatus, error) {
 		status.DerivedStatus, status.DerivedStatusReason = deriveStatus(status)
 	}
 
-	if deployment, _, err := a.client.Jobs().LatestDeployment(status.ID, nil); err == nil && deployment != nil {
+	if deployment, _, err := a.client.Jobs().LatestDeployment(status.ID, query); err == nil && deployment != nil {
 		status.LatestDeploymentID = deployment.ID
 		if status.DerivedStatus == "" {
 			status.DerivedStatus, status.DerivedStatusReason = deriveStatusFromDeployment(status, deployment.Status)
 		}
 	}
 
-	if allocs, _, err := a.client.Jobs().Allocations(status.ID, true, nil); err == nil && len(allocs) > 0 {
+	if allocs, _, err := a.client.Jobs().Allocations(status.ID, true, query); err == nil && len(allocs) > 0 {
 		status.Allocations = make([]AllocationStatus, 0, len(allocs))
 		for _, alloc := range allocs {
 			if alloc == nil {

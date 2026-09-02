@@ -46,6 +46,7 @@ type reconcileManager interface {
 	ForgetProtectedResource(ctx context.Context, repoID int64, address string) error
 	DeleteProtectedResource(ctx context.Context, repoID int64, address string) error
 	AdoptBundleResource(ctx context.Context, repoID int64, address string) error
+	AdoptJob(ctx context.Context, repoID int64, path string) error
 	DeleteRepository(ctx context.Context, repoID int64, unschedule bool) error
 	DeleteCredential(ctx context.Context, credentialID int64, deleteRepos bool, unschedule bool) error
 }
@@ -263,11 +264,20 @@ func (s *Server) handleAdoptResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req orphanActionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Address) == "" {
-		respondStatus(w, http.StatusBadRequest, errors.New("resource address is required"))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (strings.TrimSpace(req.Address) == "" && strings.TrimSpace(req.Path) == "") {
+		respondStatus(w, http.StatusBadRequest, errors.New("resource address or job path is required"))
 		return
 	}
-	if err := s.reconciler.AdoptBundleResource(r.Context(), id, req.Address); err != nil {
+	req.Address = strings.TrimSpace(req.Address)
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path != "" {
+		err = s.reconciler.AdoptJob(r.Context(), id, req.Path)
+	} else if req.Address != "" {
+		err = s.reconciler.AdoptBundleResource(r.Context(), id, req.Address)
+	} else {
+		err = errors.New("resource address or job path is required")
+	}
+	if err != nil {
 		respondErr(w, err)
 		return
 	}
@@ -405,6 +415,7 @@ type deleteRepoRequest struct {
 
 type orphanActionRequest struct {
 	Address string `json:"address"`
+	Path    string `json:"path"`
 }
 
 type deleteCredentialRequest struct {

@@ -27,6 +27,9 @@ export interface RepoJob {
   status?: string;
   status_description?: string;
   status_error?: string;
+  management_status?: string;
+  management_description?: string;
+  adoptable?: boolean;
   nomad_status?: string;
   desired_allocations?: number;
   running_allocations?: number;
