@@ -117,6 +117,7 @@ func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential 
 	if jobPath == "" {
 		jobPath = ".nomad"
 	}
+	var bundle *manifest.Bundle
 	if bundlePath, found, err := discoverBundlePath(repoPath, jobPath); err != nil {
 		return nil, err
 	} else if found {
@@ -128,24 +129,17 @@ func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential 
 		if err != nil {
 			manifestPath = bundlePath
 		}
-		bundle, err := manifest.Parse(contents, manifestPath)
+		bundle, err = manifest.Parse(contents, manifestPath)
 		if err != nil {
 			return nil, err
 		}
-		return &Snapshot{
-			RepoPath:     repoPath,
-			CommitHash:   hash,
-			CommitAuthor: author,
-			CommitTitle:  title,
-			Bundle:       bundle,
-		}, nil
 	}
 
 	jobFiles, err := discoverJobFiles(repoPath, jobPath)
 	if err != nil {
 		return nil, err
 	}
-	if len(jobFiles) == 0 {
+	if bundle == nil && len(jobFiles) == 0 {
 		searchRoot := jobPath
 		if !filepath.IsAbs(searchRoot) {
 			searchRoot = filepath.Join(repoPath, jobPath)
@@ -159,6 +153,7 @@ func (m *Manager) Sync(ctx context.Context, repo storage.Repository, credential 
 		CommitAuthor: author,
 		CommitTitle:  title,
 		JobFiles:     jobFiles,
+		Bundle:       bundle,
 	}, nil
 }
 

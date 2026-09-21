@@ -378,9 +378,6 @@ func snapshotJobFiles(snapshot *repo.Snapshot) ([]repo.JobFile, error) {
 	if snapshot == nil {
 		return nil, errors.New("snapshot is required")
 	}
-	if snapshot.Bundle != nil {
-		return nil, errors.New("bundle jobs use managed-resource tracking")
-	}
 	return snapshot.JobFiles, nil
 }
 

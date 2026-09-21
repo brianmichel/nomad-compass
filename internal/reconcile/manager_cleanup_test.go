@@ -34,14 +34,14 @@ func TestAdoptionRejectsNomadIdentityOwnedByAnotherRepository(t *testing.T) {
 	}
 }
 
-func TestRepositoryModeSwitchesFailClosedBeforeMutation(t *testing.T) {
+func TestRepositoryModeSwitchesAllowMixedReposAndProtectBundleRemoval(t *testing.T) {
 	ctx := context.Background()
 	manager, repoRecord, managed, _ := newBundleManager(t)
 	if err := manager.files.Upsert(ctx, repoRecord.ID, "job.nomad", "commit", "demo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.validateRepositoryMode(ctx, repoRecord.ID, true); err == nil {
-		t.Fatal("expected legacy-to-bundle transition to be rejected")
+	if err := manager.validateRepositoryMode(ctx, repoRecord.ID, true); err != nil {
+		t.Fatalf("mixed legacy and bundle ownership rejected: %v", err)
 	}
 	if err := manager.files.DeleteByRepo(ctx, repoRecord.ID); err != nil {
 		t.Fatal(err)
