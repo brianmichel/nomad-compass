@@ -103,7 +103,7 @@ func TestManagerSyncEmbeddedBundle(t *testing.T) {
 		t.Fatalf("worktree: %v", err)
 	}
 
-	bundlePath := filepath.Join(bundleDir, "compass.bundle.hcl")
+	bundlePath := filepath.Join(bundleDir, "openclaw.bundle.hcl")
 	if err := os.WriteFile(bundlePath, []byte(`bundle "demo" {
   resource "job" "api" {
     datacenters = ["dc1"]
@@ -117,7 +117,7 @@ func TestManagerSyncEmbeddedBundle(t *testing.T) {
 }`), 0o644); err != nil {
 		t.Fatalf("write legacy job: %v", err)
 	}
-	if _, err := wt.Add(".nomad/compass.bundle.hcl"); err != nil {
+	if _, err := wt.Add(".nomad/openclaw.bundle.hcl"); err != nil {
 		t.Fatalf("add bundle: %v", err)
 	}
 	if _, err := wt.Add(".nomad/legacy.nomad.hcl"); err != nil {
