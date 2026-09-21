@@ -187,23 +187,24 @@ func discoverBundlePath(repoPath string, jobPath string) (string, bool, error) {
 		return "", false, err
 	}
 
+	entries, err := os.ReadDir(searchRoot)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+
 	var found string
-	for _, name := range []string{"compass.bundle.hcl", "compass.hcl"} {
-		candidate := filepath.Join(searchRoot, name)
-		info, err := os.Stat(candidate)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && (strings.HasSuffix(name, ".bundle.hcl") || name == "compass.hcl") {
+			candidate := filepath.Join(searchRoot, name)
+			if found != "" {
+				return "", false, fmt.Errorf("multiple bundle manifests found: %s and %s", found, candidate)
+			}
+			found = candidate
 		}
-		if err != nil {
-			return "", false, err
-		}
-		if info.IsDir() {
-			return "", false, fmt.Errorf("bundle manifest path is a directory: %s", candidate)
-		}
-		if found != "" {
-			return "", false, fmt.Errorf("multiple bundle manifests found: %s and %s", found, candidate)
-		}
-		found = candidate
 	}
 	return found, found != "", nil
 }

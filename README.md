@@ -9,7 +9,7 @@ Nomad Compass is a GitOps reconciler for HashiCorp Nomad. It runs as a single co
 - **Single container** – Vue-powered onboarding UI and Go backend served from the same binary.
 - **Secure credential storage** – HTTPS tokens and SSH keys encrypted with a symmetric key supplied via configuration.
 - **SQLite persistence** – Lightweight, zero-dependency database managed automatically.
-- **Git polling** – Uses `go-git` to clone, fetch, and track `.nomad/*.nomad.hcl` job files or embedded `compass.bundle.hcl` manifests.
+- **Git polling** – Uses `go-git` to clone, fetch, and track `.nomad/*.nomad.hcl` job files or one direct `*.bundle.hcl`/`compass.hcl` manifest.
 - **Nomad integration** – Parses HCL jobspecs and registers them via the Nomad API with commit metadata attached.
 - **Embedded bundles** – A `compass.bundle.hcl` manifest can group native Nomad resource bodies with explicit dependencies; jobs, volumes, and ACL policies are reconciled as a bundle.
 - **Safe teardown** – Delete repositories or credentials from the UI and optionally purge their Nomad jobs.
@@ -162,7 +162,7 @@ Mount `/data` or change `COMPASS_DATABASE_PATH`/`COMPASS_REPO_BASE_DIR` if you p
 
 ### Embedded bundle manifests
 
-Repositories may place a `compass.bundle.hcl` (or `compass.hcl`) file under the configured job path. The manifest embeds native Nomad HCL bodies and gives Compass a stable resource address:
+Repositories may place one `*.bundle.hcl` (or the legacy `compass.hcl`) file directly under the configured job path. The manifest embeds native Nomad HCL bodies and gives Compass a stable resource address:
 
 ```hcl
 bundle "example" {
