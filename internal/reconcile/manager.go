@@ -97,12 +97,13 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 	if err := m.validateRepositoryMode(ctx, repoRecord.ID, snapshot.Bundle != nil); err != nil {
 		return err
 	}
+	if err := m.ensureJobs(ctx, repoRecord, snapshot, commitChanged); err != nil {
+		return err
+	}
 	if snapshot.Bundle != nil {
 		if err := m.ensureBundle(ctx, repoRecord, snapshot, commitChanged); err != nil {
 			return err
 		}
-	} else if err := m.ensureJobs(ctx, repoRecord, snapshot, commitChanged); err != nil {
-		return err
 	}
 
 	if commitChanged {
@@ -121,20 +122,11 @@ func (m *Manager) reconcileRepo(ctx context.Context, repoRecord *storage.Reposit
 }
 
 func (m *Manager) validateRepositoryMode(ctx context.Context, repoID int64, bundleMode bool) error {
-	if bundleMode {
-		if m.files == nil {
-			return nil
-		}
-		files, err := m.files.ListByRepo(ctx, repoID)
-		if err != nil {
-			return err
-		}
-		if len(files) > 0 {
-			return fmt.Errorf("repository %d cannot switch from legacy jobs to a Compass bundle while legacy job ownership exists", repoID)
-		}
-		return nil
-	}
-	if m.managed == nil {
+	// Legacy job files and bundle resources have separate ownership stores, so
+	// they can safely be reconciled from one repository. Keep the reverse guard:
+	// removing a bundle while managed resources still exist would otherwise leave
+	// those resources unmanaged without an explicit cleanup decision.
+	if bundleMode || m.managed == nil {
 		return nil
 	}
 	resources, err := m.managed.ListByRepo(ctx, repoID)

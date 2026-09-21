@@ -217,6 +217,17 @@ func newBundleManager(t *testing.T) (*Manager, *storage.Repository, *storage.Man
 	}, repoRecord, storage.NewManagedResourceStore(db), fake
 }
 
+func TestValidateRepositoryModeAllowsMixedBundleAndJobs(t *testing.T) {
+	ctx := context.Background()
+	manager, repoRecord, _, _ := newBundleManager(t)
+	if err := manager.files.Upsert(ctx, repoRecord.ID, ".nomad/legacy.nomad.hcl", "commit-1", "legacy"); err != nil {
+		t.Fatalf("record legacy job: %v", err)
+	}
+	if err := manager.validateRepositoryMode(ctx, repoRecord.ID, true); err != nil {
+		t.Fatalf("mixed repository rejected: %v", err)
+	}
+}
+
 func TestProtectedResourceLifecycleRequiresExplicitAction(t *testing.T) {
 	ctx := context.Background()
 	manager, repoRecord, managed, _ := newBundleManager(t)

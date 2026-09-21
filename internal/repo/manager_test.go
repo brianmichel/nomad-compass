@@ -111,8 +111,17 @@ func TestManagerSyncEmbeddedBundle(t *testing.T) {
 }`), 0o644); err != nil {
 		t.Fatalf("write bundle: %v", err)
 	}
+	legacyPath := filepath.Join(bundleDir, "legacy.nomad.hcl")
+	if err := os.WriteFile(legacyPath, []byte(`job "legacy" {
+  datacenters = ["dc1"]
+}`), 0o644); err != nil {
+		t.Fatalf("write legacy job: %v", err)
+	}
 	if _, err := wt.Add(".nomad/compass.bundle.hcl"); err != nil {
 		t.Fatalf("add bundle: %v", err)
+	}
+	if _, err := wt.Add(".nomad/legacy.nomad.hcl"); err != nil {
+		t.Fatalf("add legacy job: %v", err)
 	}
 	if _, err := wt.Commit("add bundle", &gogit.CommitOptions{
 		Author: &object.Signature{Name: "Tester", Email: "tester@example.com", When: time.Now()},
@@ -137,8 +146,8 @@ func TestManagerSyncEmbeddedBundle(t *testing.T) {
 	if snapshot.Bundle.Name != "demo" || len(snapshot.Bundle.Resources) != 1 {
 		t.Fatalf("unexpected bundle: %#v", snapshot.Bundle)
 	}
-	if len(snapshot.JobFiles) != 0 {
-		t.Fatalf("expected no legacy job files, got %d", len(snapshot.JobFiles))
+	if len(snapshot.JobFiles) != 1 || snapshot.JobFiles[0].Path != ".nomad/legacy.nomad.hcl" {
+		t.Fatalf("expected legacy job file alongside bundle, got %#v", snapshot.JobFiles)
 	}
 }
 
